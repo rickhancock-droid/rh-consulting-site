@@ -13,7 +13,7 @@ export default function AccessibilityPage() {
         Effective date: September 16, 2025
       </p>
 
-      <div className="prose prose-slate dark:prose-invert max-w-none mt-6">
+      <div className="prose prose-lg prose-slate dark:prose-invert max-w-none mt-6">
         <p>
           RH Strategic Consulting DBA RH Consulting (“RH Consulting,” “we,” “us,”
           or “our”) is committed to providing a website that is accessible to the
