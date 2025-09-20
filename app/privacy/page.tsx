@@ -1,52 +1,138 @@
 export const metadata = {
   title: "Privacy Policy | RH Consulting",
-  description: "How RH Consulting handles data, cookies, and communications.",
+  description:
+    "How RH Consulting collects, uses, shares, and protects your information.",
 };
 
 export default function PrivacyPage() {
   return (
     <section className="mx-auto max-w-3xl px-4 py-12">
-      <h1 className="text-3xl font-semibold text-brand-ink">Privacy Policy</h1>
-      <p className="mt-4 text-brand-muted">
-        We collect only the data needed to deliver services you request and to improve our site.
+      <h1 className="text-3xl font-semibold text-brand-ink dark:text-white">
+        Privacy Policy
+      </h1>
+      <p className="mt-2 text-sm text-brand-muted dark:text-slate-400">
+        Effective date: September 16, 2025
       </p>
 
-      <h2 className="text-xl font-semibold mt-8 text-brand-ink">Information We Collect</h2>
-      <ul className="list-disc pl-6 mt-2 text-brand-muted space-y-1">
-        <li>Contact details you voluntarily provide (name, email, company, message)</li>
-        <li>ROI inputs only when you choose to share via email or calendar link</li>
-        <li>Anonymous usage + performance analytics (e.g., page views, load time)</li>
-      </ul>
+      <div className="prose prose-slate dark:prose-invert max-w-none mt-6">
+        <p>
+          RH Strategic Consulting DBA RH Consulting (“RH Consulting,” “we,” “us,”
+          or “our”) is committed to respecting your privacy. This Privacy Policy
+          explains what information we collect through our website,{" "}
+          <a href="https://www.rhconsulting.ai">www.rhconsulting.ai</a> (the
+          “Website”), how we use it, and the measures we take to protect it.
+        </p>
 
-      <h2 className="text-xl font-semibold mt-8 text-brand-ink">How We Use Information</h2>
-      <ul className="list-disc pl-6 mt-2 text-brand-muted space-y-1">
-        <li>To respond to inquiries and deliver consulting services</li>
-        <li>To analyze and improve website performance and content</li>
-        <li>To personalize recommendations (e.g., ROI analysis follow-ups)</li>
-      </ul>
+        <p>
+          Our Website is hosted on third-party services (e.g., Wix) that help us
+          operate the site. Those providers may process data on our behalf
+          consistent with this Policy and their own privacy terms.
+        </p>
 
-      <h2 className="text-xl font-semibold mt-8 text-brand-ink">Data Sharing</h2>
-      <p className="mt-2 text-brand-muted">
-        We do not sell personal data. We may use processors (e.g., analytics, scheduling tools)
-        governed by their own policies and DPAs. We share data only as needed to provide services or comply with law.
-      </p>
+        <h2>Information We Collect</h2>
+        <p>We collect information in two broad categories:</p>
 
-      <h2 className="text-xl font-semibold mt-8 text-brand-ink">Retention & Security</h2>
-      <p className="mt-2 text-brand-muted">
-        We retain information only as long as necessary for the purposes above and use reasonable measures to protect it.
-      </p>
+        <h3>1) Personal Information</h3>
+        <p>
+          Details that identify or relate to a specific person—such as your
+          name, email address, phone number, company, and role/title. We may
+          collect this when you engage with our AI receptionist (chatbot),
+          submit forms, request a quote, book a meeting, complete a checkout, or
+          subscribe to updates.
+        </p>
 
-      <h2 className="text-xl font-semibold mt-8 text-brand-ink">Your Choices</h2>
-      <ul className="list-disc pl-6 mt-2 text-brand-muted space-y-1">
-        <li>Opt out of non-essential analytics via your browser settings</li>
-        <li>Request access, correction, or deletion of your data by contacting us</li>
-      </ul>
+        <h3>2) Usage / Non-Personal Information</h3>
+        <p>
+          Information that does not, on its own, identify you—such as IP
+          address, device and browser type, operating system, pages viewed,
+          referring pages, time and date of visits, and general interaction
+          data. We collect this automatically via cookies, pixels, and similar
+          technologies to help us understand and improve site performance.
+        </p>
 
-      <h2 className="text-xl font-semibold mt-8 text-brand-ink">Contact</h2>
-      <p className="mt-2 text-brand-muted">
-        Email <a className="text-brand-primary underline" href="mailto:hello@rhconsulting.ai">hello@rhconsulting.ai</a>
-      </p>
-      <p className="text-xs text-brand-muted mt-8">Last updated: {new Date().toLocaleDateString()}</p>
+        <h2>How We Use Information</h2>
+        <ul>
+          <li>Operate and improve the Website and our services</li>
+          <li>Respond to inquiries and provide support</li>
+          <li>Send updates or marketing (you can opt out at any time)</li>
+          <li>Perform analytics and measure campaign effectiveness</li>
+          <li>Protect the security and integrity of our systems and users</li>
+        </ul>
+        <p><strong>We do not sell your Personal Information.</strong></p>
+
+        <h2>Sharing Your Information</h2>
+        <h3>Service Providers</h3>
+        <p>
+          We engage trusted vendors who assist with hosting, email delivery,
+          analytics (e.g., Google), payment processing, security, forms/CRM, and
+          similar operational tasks. They may access Personal Information only
+          to perform services for us and must keep it confidential.
+        </p>
+        <h3>Legal and Safety</h3>
+        <p>
+          We may disclose information if required by law, regulation, court
+          order, or to investigate, prevent, or address suspected fraud, security
+          issues, or harm to rights and property.
+        </p>
+        <h3>Business Transfers</h3>
+        <p>
+          If we undergo a merger, acquisition, financing, or sale of assets,
+          your information may be transferred as part of that transaction.
+        </p>
+
+        <h2>Cookies and Tracking Technologies</h2>
+        <p>
+          Cookies are small files placed on your device that help the site
+          function and allow us to understand usage. We use:
+        </p>
+        <ul>
+          <li>Essential cookies for core functionality</li>
+          <li>Analytics cookies to measure traffic and performance</li>
+          <li>(Optional) Advertising/retargeting cookies if enabled</li>
+        </ul>
+        <p>
+          You can manage cookies through your browser settings and, where
+          available, via our on-site cookie banner/preferences tool.
+        </p>
+
+        <h2>Data Security</h2>
+        <p>
+          We use reasonable administrative, technical, and physical safeguards
+          designed to protect your information against unauthorized access,
+          disclosure, alteration, or destruction. However, no method of
+          transmission over the Internet or storage system is completely secure.
+        </p>
+
+        <h2>Children’s Privacy</h2>
+        <p>
+          Our services are not directed to children under 13, and we do not
+          knowingly collect Personal Information from children under 13. If you
+          believe a child has provided us information, please contact us so we
+          can delete it.
+        </p>
+
+        <h2>Changes to This Privacy Policy</h2>
+        <p>
+          We may revise this Policy from time to time. When we do, we’ll update
+          the “Effective date” above and post the new version on this page.
+          Material changes may be communicated through additional notices.
+        </p>
+
+        <h2>Contact Us</h2>
+        <p>
+          If you have questions about this Privacy Policy or your information,
+          please contact us at:
+        </p>
+        <p>
+          <strong>RH Strategic Consulting DBA RH Consulting</strong>
+          <br />
+          Santa Barbara, California, USA
+          <br />
+          Email: <a href="mailto:hello@rhconsulting.ai">hello@rhconsulting.ai</a>
+        </p>
+
+        <p className="text-sm opacity-70">Last updated: September 16, 2025</p>
+      </div>
     </section>
   );
 }
