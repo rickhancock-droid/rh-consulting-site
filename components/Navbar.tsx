@@ -1,29 +1,44 @@
 "use client";
-
-import Image from "next/image";
-import ThemeToggle from "./ThemeToggle";
-import SocialIcons from "./SocialIcons";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 export default function Navbar() {
+  const pathname = usePathname();
+  const onCalculator = pathname === "/roi-calculator";
+
   return (
-    <nav className="sticky top-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur border-b border-gray-200 dark:border-gray-800">
-      <div className="mx-auto max-w-6xl px-6 h-14 flex items-center justify-between">
-        <a href="#top" className="flex items-center gap-2" aria-label="RH Consulting home">
-          {/* Black chip ensures white-on-black logo has contrast in light mode */}
-          <span className="relative h-8 w-8 rounded-xl bg-black dark:bg-transparent">
-            <Image src="/logo.png" alt="RH Consulting logo" fill className="object-contain p-1" />
-          </span>
-          <span className="sr-only">RH Consulting</span>
-        </a>
+    <header className="sticky top-0 z-50 bg-white/70 backdrop-blur border-b">
+      <nav className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between">
+        <Link href="/" className="flex items-center gap-2">
+          <img src="/logo.png" alt="RH Consulting" className="h-6 w-auto" />
+          <span className="font-semibold text-brand-ink">RH Consulting</span>
+        </Link>
 
-        {/* ...keep your existing nav links, CTA, ThemeToggle, etc. */}
-      </div>
+        <div className="flex items-center gap-4">
+          <Link href="/" className="text-brand-muted hover:text-brand-ink">
+            Home
+          </Link>
 
-      {/* Optional: socials on mobile */}
-      <div className="sm:hidden px-6 pb-2">
-        <SocialIcons />
-      </div>
-    </nav>
+          {!onCalculator && (
+            <Link
+              href="/roi-calculator"
+              className="text-brand-muted hover:text-brand-ink"
+            >
+              ROI Calculator
+            </Link>
+          )}
+
+          {!onCalculator && (
+            <a
+              href="/roi-calculator"
+              className="px-3 py-1.5 rounded-2xl bg-brand-primary hover:bg-brand-primaryDark text-white shadow-sm"
+            >
+              Try the Calculator
+            </a>
+          )}
+        </div>
+      </nav>
+    </header>
   );
 }
 
