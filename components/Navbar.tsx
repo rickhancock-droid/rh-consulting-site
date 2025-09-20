@@ -15,19 +15,12 @@ export default function Navbar() {
         </Link>
 
         <div className="flex items-center gap-4">
-          <Link href="/" className="text-brand-muted hover:text-brand-ink">
-            Home
-          </Link>
-
+          <Link href="/" className="text-brand-muted hover:text-brand-ink">Home</Link>
           {!onCalculator && (
-            <Link
-              href="/roi-calculator"
-              className="text-brand-muted hover:text-brand-ink"
-            >
+            <Link href="/roi-calculator" className="text-brand-muted hover:text-brand-ink">
               ROI Calculator
             </Link>
           )}
-
           {!onCalculator && (
             <a
               href="/roi-calculator"
