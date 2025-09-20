@@ -1,4 +1,4 @@
-className="prose prose-lg prose-slate dark:prose-invert max-w-none mt-6export const metadata = {
+export const metadata = {
   title: "Privacy Policy | RH Consulting",
   description:
     "How RH Consulting collects, uses, shares, and protects your information.",
