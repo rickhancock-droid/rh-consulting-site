@@ -1,23 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { color-scheme: light dark; }
+  body { @apply bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100; }
+}
+
 @layer components {
-  .surface {
-    @apply bg-white border border-slate-200 dark:bg-slate-900 dark:border-slate-800;
-  }
-  .card {
-    @apply surface rounded-2xl shadow-card;
-  }
-  .muted {
-    @apply text-slate-600 dark:text-slate-400;
-  }
-  .heading {
-    @apply text-slate-900 dark:text-white;
-  }
-  .chip {
-    @apply inline-flex items-center px-3 py-1 rounded-full border border-slate-300 bg-white text-slate-600
-           dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300;
-  }
-  .field {
-    @apply h-10 px-3 rounded-xl border border-slate-300 bg-white text-slate-900
-           dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100;
-  }
+  .surface { @apply bg-white border border-slate-200 dark:bg-slate-900 dark:border-slate-800; }
+  .card    { @apply surface rounded-2xl shadow-card; }
+  .muted   { @apply text-slate-600 dark:text-slate-400; }
+  .heading { @apply text-slate-900 dark:text-white; }
+  .chip    { @apply inline-flex items-center px-3 py-1 rounded-full border border-slate-300 bg-white text-slate-600
+                     dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300; }
+  .field   { @apply h-10 px-3 rounded-xl border border-slate-300 bg-white text-slate-900
+                     dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100; }
 }
 
