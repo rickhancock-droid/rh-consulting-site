@@ -1,0 +1,14 @@
+cd ~/rh-consulting-site
+
+# create components folder if missing
+mkdir -p components
+
+# open and paste each file from the canvas, save/exit:
+nano app/layout.tsx
+nano components/Navbar.tsx
+nano app/page.tsx
+nano next.config.ts
+
+# restart after next.config.ts changes
+npm run dev
+
