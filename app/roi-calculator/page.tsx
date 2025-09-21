@@ -1,104 +1,170 @@
 // app/roi-calculator/page.tsx
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef } from "react";
 import Link from "next/link";
 
-/** -------------------- Config -------------------- **/
-const CALENDLY_URL =
-  "https://calendly.com/rick-hancock-rhconsulting/30min";
+// ---------- constants ----------
+const CALENDLY_URL = "https://calendly.com/your-handle/30min";
 
-const WORKFLOW_SUGGESTIONS = [
+const WORKFLOW_TEMPLATES = [
   "Lead qualification",
   "FAQ / info requests",
   "Inbound email triage",
   "CRM data entry",
   "Order processing",
-  "Appointment scheduling",
-  "Ticket routing & tagging",
-  "Knowledge-base answer drafting",
-  "Invoice reconciliation",
-];
+] as const;
 
+type TemplateName = (typeof WORKFLOW_TEMPLATES)[number];
+
+// ---------- types ----------
 type Workflow = {
   id: string;
   name: string;
   minPerTask: number;
   tasksPerMonth: number;
   people: number;
-  automationPct: number; // 0-100
+  automationPct: number; // 0–100
   hourly: number;
 };
 
-const fmtMoney0 = (n: number, currency = "USD") =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(isFinite(n) ? n : 0);
+// ---------- utils ----------
+const fmtMoney = (n: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 
-const fmt1 = (n: number) =>
-  new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(
-    isFinite(n) ? n : 0
+const fmtHrs = (n: number) =>
+  new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(n) + " hrs";
+
+const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+
+const uid = () => Math.random().toString(36).slice(2);
+
+// ---------- small components ----------
+function LabeledCard(props: { title: string; subtitle?: string; children: React.ReactNode; accent?: "none" | "orange" }) {
+  const ring =
+    props.accent === "orange"
+      ? "ring-2 ring-orange-400/60"
+      : "ring-1 ring-white/10";
+  return (
+    <div className={`rounded-2xl bg-[#0f1420] ${ring} p-5 flex flex-col gap-1 min-h-[108px]`}>
+      <div className="text-xs/5 text-white/60 uppercase tracking-wide">{props.title}</div>
+      <div className="text-3xl font-semibold">{props.children}</div>
+      {props.subtitle && <div className="text-xs text-white/50">{props.subtitle}</div>}
+    </div>
   );
-
-const clamp = (v: number, mi: number, ma: number) =>
-  Math.max(mi, Math.min(ma, v));
-
-const HOURS_PER_FTE = 2080;
-
-/** --------------- Safe numeric input --------------- **/
-function numOr(v: string, fallback = 0) {
-  const n = Number(v.replace(/,/g, ""));
-  return Number.isFinite(n) ? n : fallback;
 }
-function InputNumber(props: {
+
+function NumberInput({
+  value,
+  onChange,
+  step = 1,
+  min = 0,
+  max = 1_000_000,
+}: {
   value: number;
   onChange: (v: number) => void;
   step?: number;
   min?: number;
   max?: number;
-  className?: string;
 }) {
-  const { value, onChange, step = 1, min = 0, max = 1e9, className } = props;
   return (
     <input
-      inputMode="decimal"
-      pattern="[0-9]*"
+      inputMode="numeric"
+      className="w-full rounded-xl bg-white/5 ring-1 ring-white/10 px-4 py-2 outline-none focus:ring-2 focus:ring-violet-400/60"
       value={String(value)}
-      onChange={(e) => onChange(clamp(numOr(e.target.value, 0), min, max))}
-      onBlur={(e) => onChange(clamp(numOr(e.target.value, 0), min, max))}
+      onChange={(e) => {
+        const raw = e.target.value.replace(/[^0-9.]/g, "");
+        const parsed = raw === "" || raw === "." ? 0 : Number(raw);
+        if (!Number.isNaN(parsed)) onChange(clamp(parsed, min, max));
+      }}
+      onKeyDown={(e) => {
+        // allow backspace/delete to clear
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+      }}
       step={step}
-      className={
-        className ??
-        "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-      }
     />
   );
 }
 
-/** ----------------- Main component ----------------- **/
-export default function RoiCalculatorPage() {
-  // Program-level inputs (defaults aimed at ~100-employee SMB)
-  const [adoption, setAdoption] = useState<number>(80); // %
-  const [platformAnnual, setPlatformAnnual] = useState<number>(12000);
-  const [aiUsageAnnual, setAiUsageAnnual] = useState<number>(6000);
-  const [implOneTime, setImplOneTime] = useState<number>(5000);
-  const [implMonths, setImplMonths] = useState<number>(12);
+function SearchablePicker({
+  items,
+  placeholder = "Search workflows…",
+  onSelect,
+}: {
+  items: readonly string[];
+  placeholder?: string;
+  onSelect: (name: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const filtered = items.filter((i) => i.toLowerCase().includes(q.toLowerCase()));
 
-  // Workflow rows (two by default)
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        className="w-full text-left rounded-xl bg-white/5 ring-1 ring-white/10 px-4 py-2 outline-none focus:ring-2 focus:ring-violet-400/60"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {placeholder}
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-2 w-[360px] max-w-[80vw] rounded-xl bg-[#0f1420] ring-1 ring-white/10 shadow-xl">
+          <input
+            autoFocus
+            className="w-full bg-transparent px-3 py-2 border-b border-white/10 outline-none"
+            placeholder="Type to filter…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <ul className="max-h-64 overflow-y-auto py-1">
+            {filtered.map((name) => (
+              <li key={name}>
+                <button
+                  className="w-full text-left px-3 py-2 hover:bg-white/5"
+                  onClick={() => {
+                    onSelect(name);
+                    setOpen(false); // CLOSE on select
+                    setQ("");
+                  }}
+                >
+                  {name}
+                </button>
+              </li>
+            ))}
+            {filtered.length === 0 && (
+              <li className="px-3 py-3 text-white/60">No matches</li>
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- page ----------
+export default function RoiCalculatorPage() {
+  // Program settings
+  const [adoptionPct, setAdoptionPct] = useState<number>(80);
+  const [platformYear, setPlatformYear] = useState<number>(12000); // annual ($)
+  const [aiUsageYear, setAiUsageYear] = useState<number>(6000); // annual ($)
+  const [implCost, setImplCost] = useState<number>(5000);
+  const [amortMonths, setAmortMonths] = useState<number>(12);
+
+  // Workflows
   const [rows, setRows] = useState<Workflow[]>([
     {
-      id: crypto.randomUUID(),
+      id: uid(),
       name: "FAQ / info requests",
       minPerTask: 4,
       tasksPerMonth: 1500,
       people: 2,
       automationPct: 60,
-      hourly: 35,
+      hourly: 45,
     },
     {
-      id: crypto.randomUUID(),
+      id: uid(),
       name: "Lead qualification",
       minPerTask: 7,
       tasksPerMonth: 600,
@@ -108,439 +174,258 @@ export default function RoiCalculatorPage() {
     },
   ]);
 
-  /** ------- Derived calculations ------- **/
-  const derived = useMemo(() => {
-    const annualPlatform = platformAnnual;
-    const annualAI = aiUsageAnnual;
-    const annualImpl = implMonths > 0 ? (implOneTime * 12) / implMonths : 0;
-    const totalAnnualCosts = annualPlatform + annualAI + annualImpl;
-
-    // Hours saved & labor savings across all workflows
-    const rowCalcs = rows.map((r) => {
-      const hoursPerTask = r.minPerTask / 60;
-      const annualTasks = r.tasksPerMonth * 12;
-      const hoursSaved =
-        hoursPerTask * annualTasks * (r.automationPct / 100) * (adoption / 100);
-      const laborSavings = hoursSaved * r.hourly;
-      return { ...r, hoursSaved, laborSavings };
-    });
-
-    const totalHours = rowCalcs.reduce((s, r) => s + r.hoursSaved, 0);
-    const totalLabor = rowCalcs.reduce((s, r) => s + r.laborSavings, 0);
-    const fteSaved = totalHours / HOURS_PER_FTE;
-
-    const netBenefit = totalLabor - totalAnnualCosts;
-    const roiPct = totalAnnualCosts > 0 ? (netBenefit / totalAnnualCosts) * 100 : 0;
-    return {
-      rowCalcs,
-      totalHours,
-      totalLabor,
-      fteSaved,
-      annualPlatform,
-      annualAI,
-      annualImpl,
-      totalAnnualCosts,
-      netBenefit,
-      roiPct,
-    };
-  }, [
-    rows,
-    adoption,
-    platformAnnual,
-    aiUsageAnnual,
-    implOneTime,
-    implMonths,
-  ]);
-
-  /** ------- Handlers ------- **/
-  function addRow(suggest?: string) {
+  const addWorkflow = (name?: TemplateName) => {
     setRows((r) => [
       ...r,
       {
-        id: crypto.randomUUID(),
-        name: suggest ?? "",
+        id: uid(),
+        name: name ?? "New workflow",
         minPerTask: 5,
-        tasksPerMonth: 400,
+        tasksPerMonth: 500,
         people: 1,
         automationPct: 50,
         hourly: 40,
       },
     ]);
-  }
-  function updateRow(id: string, patch: Partial<Workflow>) {
-    setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-  }
-  function removeRow(id: string) {
-    setRows((r) => r.filter((x) => x.id !== id));
-  }
+  };
 
-  /** ------- UI ------- **/
+  const removeRow = (id: string) => setRows((r) => r.filter((w) => w.id !== id));
+
+  // ----- calcs -----
+  const totals = useMemo(() => {
+    // hours saved per row
+    const rowHours = rows.map((w) => {
+      const minutes = w.minPerTask * w.tasksPerMonth * 12;
+      const auto = minutes * (w.automationPct / 100) * (adoptionPct / 100);
+      return auto / 60; // to hours
+    });
+    const annualHoursSaved = rowHours.reduce((a, b) => a + b, 0);
+
+    const annualLaborSavings = rows.reduce((sum, w, i) => {
+      const saveHrs = rowHours[i];
+      return sum + saveHrs * w.hourly;
+    }, 0);
+
+    const totalAnnualCosts =
+      platformYear +
+      aiUsageYear +
+      (implCost / Math.max(1, amortMonths)) * 12;
+
+    const netBenefit = annualLaborSavings - totalAnnualCosts;
+    const roiPct = totalAnnualCosts > 0 ? (netBenefit / totalAnnualCosts) * 100 : 0;
+
+    return {
+      annualHoursSaved,
+      annualLaborSavings,
+      totalAnnualCosts,
+      netBenefit,
+      roiPct,
+    };
+  }, [rows, adoptionPct, platformYear, aiUsageYear, implCost, amortMonths]);
+
+  // ---------- render ----------
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6">
-      {/* Top header line: title + explainer + CTA */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div className="mx-auto max-w-[1180px] px-4 pb-24 pt-6 text-white">
+      <div className="mb-4 flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-            AI ROI Calculators
-          </h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400">
-            Estimate time &amp; cost savings. Defaults reflect a ~100-employee SMB—tweak for your org.
+          <h1 className="text-3xl sm:text-4xl font-bold">AI ROI Calculators</h1>
+          <p className="text-white/70 mt-1">
+            Estimate time & cost savings. Defaults reflect a ~100-employee SMB—tweak for your org.
           </p>
         </div>
 
-        {/* ROI card + Calendly */}
-        <div className="flex items-start gap-3">
-          <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-right dark:border-emerald-800 dark:bg-emerald-950/40">
-            <div className="text-[11px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-              ROI
-            </div>
-            <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
-              {fmt1(derived.roiPct)}%
-            </div>
-            <div className="text-xs text-emerald-700 dark:text-emerald-300">
-              {fmtMoney0(derived.netBenefit)}
-            </div>
+        <Link
+          href={CALENDLY_URL}
+          className="shrink-0 rounded-full bg-violet-500 px-5 py-3 text-sm font-semibold hover:bg-violet-400 transition"
+        >
+          Book a call with these results
+        </Link>
+      </div>
+
+      {/* Top summary cards (dashboard) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <LabeledCard title="ANNUAL HRS SAVED" subtitle="≈ based on 2080 hrs/yr">
+          {fmtHrs(totals.annualHoursSaved)}
+        </LabeledCard>
+
+        <LabeledCard title="ANNUAL LABOR SAVINGS" subtitle="before software costs">
+          {fmtMoney(totals.annualLaborSavings)}
+        </LabeledCard>
+
+        <LabeledCard title="TOTAL ANNUAL COSTS" subtitle="platform + usage + build">
+          {fmtMoney(totals.totalAnnualCosts)}
+        </LabeledCard>
+
+        <LabeledCard title="NET BENEFIT / ROI" accent="orange">
+          <div className="flex items-baseline gap-3">
+            <span>{fmtMoney(totals.netBenefit)}</span>
+            <span className="text-emerald-400 text-lg font-semibold">
+              {Number.isFinite(totals.roiPct) ? `${Math.round(totals.roiPct)}% ROI` : "—"}
+            </span>
           </div>
-
-          <Link
-            href={`${CALENDLY_URL}?roi=${encodeURIComponent(
-              fmt1(derived.roiPct)
-            )}&net=${encodeURIComponent(fmtMoney0(derived.netBenefit))}`}
-            className="inline-flex h-10 items-center justify-center rounded-lg bg-violet-600 px-4 text-sm font-medium text-white hover:bg-violet-500"
-          >
-            Book a call with these results
-          </Link>
-        </div>
+        </LabeledCard>
       </div>
 
-      {/* Dashboard summary (4 tiles) */}
-      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatCard
-          label="Annual hrs saved"
-          value={`${fmt1(derived.totalHours)} hrs`}
-        />
-        <StatCard
-          label="Annual labor savings"
-          value={fmtMoney0(derived.totalLabor)}
-        />
-        <StatCard
-          label="Total annual costs"
-          value={fmtMoney0(derived.totalAnnualCosts)}
-        />
-        <StatCard
-          label="Net benefit"
-          value={fmtMoney0(derived.netBenefit)}
-          accent="green"
-        />
-      </div>
-
-      {/* Program-level inputs */}
-      <section className="mt-6 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          Program settings
-        </h2>
-
-        <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Program settings */}
+      <div className="rounded-2xl bg-[#0b1020] ring-1 ring-white/10 p-5 mb-6">
+        <div className="text-sm/5 text-white/60 uppercase tracking-wide mb-3">Program settings</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <div>
-            <label className="mb-1 block text-xs text-slate-600 dark:text-slate-400">
-              Adoption (% of eligible work)
-            </label>
+            <div className="text-xs text-white/60 mb-2">Adoption (% of eligible work)</div>
             <div className="flex items-center gap-3">
               <input
                 type="range"
                 min={0}
                 max={100}
-                value={adoption}
-                onChange={(e) => setAdoption(Number(e.target.value))}
+                value={adoptionPct}
+                onChange={(e) => setAdoptionPct(Number(e.target.value))}
                 className="w-full"
               />
-              <InputNumber
-                value={adoption}
-                onChange={(v) => setAdoption(clamp(v, 0, 100))}
-                min={0}
-                max={100}
-                className="w-20 text-center"
-              />
+              <div className="w-[56px] text-center rounded-lg bg-white/5 ring-1 ring-white/10 py-1">
+                {adoptionPct}
+              </div>
             </div>
           </div>
-          <NumberField
-            label="Platform cost (annual)"
-            value={platformAnnual}
-            onChange={setPlatformAnnual}
-            prefix="$"
-          />
-          <NumberField
-            label="AI usage (annual)"
-            value={aiUsageAnnual}
-            onChange={setAiUsageAnnual}
-            prefix="$"
-          />
+
           <div>
-            <label className="mb-1 block text-xs text-slate-600 dark:text-slate-400">
-              Implementation (one-time) / months
-            </label>
-            <div className="flex items-center gap-2">
-              <InputNumber
-                value={implOneTime}
-                onChange={setImplOneTime}
-                className="w-full"
-              />
-              <span className="text-slate-500">÷</span>
-              <InputNumber
-                value={implMonths}
-                onChange={(v) => setImplMonths(clamp(v, 1, 60))}
-                className="w-20"
-              />
-            </div>
+            <div className="text-xs text-white/60 mb-2">Platform cost (annual)</div>
+            <NumberInput value={platformYear} onChange={setPlatformYear} step={100} />
+          </div>
+
+          <div>
+            <div className="text-xs text-white/60 mb-2">AI usage (annual)</div>
+            <NumberInput value={aiUsageYear} onChange={setAiUsageYear} step={100} />
+          </div>
+
+          <div>
+            <div className="text-xs text-white/60 mb-2">Implementation (one-time)</div>
+            <NumberInput value={implCost} onChange={setImplCost} step={100} />
+          </div>
+
+          <div>
+            <div className="text-xs text-white/60 mb-2">Amortize (months)</div>
+            <NumberInput value={amortMonths} onChange={setAmortMonths} step={1} />
           </div>
         </div>
-      </section>
+      </div>
 
       {/* Workflows */}
-      <section className="mt-6 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Workflows
-          </h2>
-          {/* Searchable suggestion */}
-          <WorkflowSuggest onPick={(name) => addRow(name)} />
+      <div className="rounded-2xl bg-[#0b1020] ring-1 ring-white/10 p-5">
+        <div className="text-sm/5 text-white/60 uppercase tracking-wide mb-3">Workflows</div>
+
+        <div className="mb-4">
+          <SearchablePicker
+            items={WORKFLOW_TEMPLATES}
+            placeholder="+ Add from templates (search)"
+            onSelect={(name) => addWorkflow(name as TemplateName)}
+          />
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-3">
-          {derived.rowCalcs.map((r) => (
-            <div
-              key={r.id}
-              className="rounded-xl border border-slate-200 p-3 dark:border-slate-800"
-            >
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
-                <div className="md:col-span-2">
-                  <label className="mb-1 block text-xs text-slate-600 dark:text-slate-400">
-                    Workflow name
-                  </label>
+        <div className="space-y-4">
+          {rows.map((w) => (
+            <div key={w.id} className="rounded-xl bg-white/5 ring-1 ring-white/10 p-4">
+              <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+                <div className="col-span-2 sm:col-span-2">
+                  <div className="text-xs text-white/60 mb-1">Workflow name</div>
                   <input
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-                    value={r.name}
-                    onChange={(e) => updateRow(r.id, { name: e.target.value })}
+                    className="w-full rounded-xl bg-white/5 ring-1 ring-white/10 px-4 py-2 outline-none focus:ring-2 focus:ring-violet-400/60"
+                    value={w.name}
+                    onChange={(e) =>
+                      setRows((r) => r.map((x) => (x.id === w.id ? { ...x, name: e.target.value } : x)))
+                    }
                   />
                 </div>
-
-                <NumberField
-                  label="Minutes per task"
-                  value={r.minPerTask}
-                  onChange={(v) => updateRow(r.id, { minPerTask: v })}
-                />
-                <NumberField
-                  label="Tasks per month"
-                  value={r.tasksPerMonth}
-                  onChange={(v) => updateRow(r.id, { tasksPerMonth: v })}
-                />
-                <NumberField
-                  label="People"
-                  value={r.people}
-                  onChange={(v) => updateRow(r.id, { people: v })}
-                />
 
                 <div>
-                  <div className="mb-1 flex items-center justify-between">
-                    <label className="block text-xs text-slate-600 dark:text-slate-400">
-                      Hourly $
-                    </label>
-                    <button
-                      onClick={() => removeRow(r.id)}
-                      className="text-[11px] font-medium text-rose-600 hover:underline"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                  <InputNumber
-                    value={r.hourly}
-                    onChange={(v) => updateRow(r.id, { hourly: v })}
+                  <div className="text-xs text-white/60 mb-1">Minutes per task</div>
+                  <NumberInput
+                    value={w.minPerTask}
+                    onChange={(v) => setRows((r) => r.map((x) => (x.id === w.id ? { ...x, minPerTask: v } : x)))}
+                    step={1}
+                  />
+                </div>
+
+                <div>
+                  <div className="text-xs text-white/60 mb-1">Tasks per month</div>
+                  <NumberInput
+                    value={w.tasksPerMonth}
+                    onChange={(v) => setRows((r) => r.map((x) => (x.id === w.id ? { ...x, tasksPerMonth: v } : x)))}
+                    step={10}
+                  />
+                </div>
+
+                <div>
+                  <div className="text-xs text-white/60 mb-1">People</div>
+                  <NumberInput
+                    value={w.people}
+                    onChange={(v) => setRows((r) => r.map((x) => (x.id === w.id ? { ...x, people: v } : x)))}
+                    step={1}
+                  />
+                </div>
+
+                <div>
+                  <div className="text-xs text-white/60 mb-1">Automation %</div>
+                  <NumberInput
+                    value={w.automationPct}
+                    onChange={(v) =>
+                      setRows((r) => r.map((x) => (x.id === w.id ? { ...x, automationPct: clamp(v, 0, 100) } : x)))
+                    }
+                    step={1}
+                  />
+                </div>
+
+                <div>
+                  <div className="text-xs text-white/60 mb-1">Hourly $</div>
+                  <NumberInput
+                    value={w.hourly}
+                    onChange={(v) => setRows((r) => r.map((x) => (x.id === w.id ? { ...x, hourly: v } : x)))}
+                    step={1}
                   />
                 </div>
               </div>
 
-              {/* automation slider */}
-              <div className="mt-3">
-                <label className="mb-1 block text-xs text-slate-600 dark:text-slate-400">
-                  Automation rate ({r.automationPct}%)
-                </label>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={r.automationPct}
-                  onChange={(e) =>
-                    updateRow(r.id, { automationPct: Number(e.target.value) })
-                  }
-                  className="w-full"
-                />
-              </div>
-
-              {/* per-row summary */}
-              <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-4">
-                <MiniStat
-                  label="Annual hours saved"
-                  value={`${fmt1(r.hoursSaved)} hrs`}
-                />
-                <MiniStat
-                  label="Labor savings"
-                  value={fmtMoney0(r.laborSavings)}
-                />
-                <MiniStat
-                  label="FTE saved"
-                  value={fmt1(r.hoursSaved / HOURS_PER_FTE)}
-                />
-                <MiniStat label="People" value={String(r.people)} />
+              <div className="mt-3 flex justify-end">
+                <button
+                  className="text-sm text-rose-400 hover:text-rose-300"
+                  onClick={() => removeRow(w.id)}
+                >
+                  Remove
+                </button>
               </div>
             </div>
           ))}
         </div>
+      </div>
 
-        {/* Add new row */}
-        <div className="mt-3">
-          <button
-            onClick={() => addRow()}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900/50"
-          >
-            + Add workflow
-          </button>
-        </div>
-      </section>
-
-      {/* Calculation summary (accordion) */}
-      <details className="mt-6 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
-        <summary className="cursor-pointer text-sm font-semibold text-slate-900 dark:text-slate-100">
-          Calculation Summary
-        </summary>
-        <div className="prose prose-sm dark:prose-invert max-w-none pt-3">
+      {/* Calculation Summary (accordion-like, closed text already chosen; here we keep it OPEN when user expands) */}
+      <details className="mt-6 rounded-2xl bg-[#0b1020] ring-1 ring-white/10 p-5">
+        <summary className="cursor-pointer text-lg font-semibold">Calculation Summary</summary>
+        <div className="mt-4 space-y-6 text-white/90 leading-7">
           <p>
-            <strong>Benefit.</strong> We estimate hours saved by multiplying minutes per task × tasks per month × 12 × automation rate × program adoption. Labor savings = hours saved × hourly rate. FTE saved uses ~2080 hrs/year.
+            <span className="font-semibold">Benefit.</span> We estimate hours saved by multiplying{" "}
+            <em>minutes per task × tasks per month × 12 × automation rate × program adoption</em>. Labor savings = hours
+            saved × hourly rate. FTE saved uses ~2080 hrs/year.
           </p>
           <p>
-            <strong>Costs.</strong> Total annual cost = platform (annual) + AI usage (annual) + implementation (one-time amortized across your chosen months).
+            <span className="font-semibold">Costs.</span> Total annual cost ={" "}
+            <em>platform (annual) + AI usage (annual) + implementation (one-time amortized across your chosen months)</em>.
           </p>
           <p>
-            <strong>ROI.</strong> ROI% = (Net Benefit ÷ Total Annual Cost) × 100, where Net Benefit = Labor Savings − Total Annual Cost.
+            <span className="font-semibold">ROI.</span> ROI% = <em>net benefit ÷ total annual cost</em> × 100, where Net
+            Benefit = Labor Savings – Total Annual Cost.
           </p>
         </div>
       </details>
 
-      {/* Disclaimer (always visible) */}
-      <p className="mt-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-        The results of this tool are illustrative and not a guarantee. Actual outcomes vary by implementation, adoption,
-        configuration, practices, and market conditions. All calculations shown in USD unless noted.
-      </p>
-    </div>
-  );
-}
-
-/** ---------------- Small UI pieces ---------------- **/
-function StatCard({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: "green";
-}) {
-  const base =
-    "rounded-xl border px-4 py-3 text-sm dark:border-slate-800 bg-white dark:bg-slate-950";
-  const color =
-    accent === "green"
-      ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40"
-      : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950";
-  return (
-    <div className={`${base} ${color}`}>
-      <div className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        {label}
-      </div>
-      <div className="mt-1 text-base font-semibold text-slate-900 dark:text-slate-100">
-        {value}
+      {/* Disclaimer – always visible */}
+      <div className="mt-4 text-sm text-white/60 leading-6">
+        The results of this tool are provided for illustrative purposes only to help you explore potential benefits of AI
+        automation in your organization. Actual outcomes will vary and are not a guarantee or commitment of financial
+        return. Results depend on factors including (but not limited to) implementation practices, user adoption,
+        workflow design and configurations, organizational processes, market conditions, and external economic factors.
+        All calculations are presented in US dollars unless otherwise noted.
       </div>
     </div>
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-800">
-      <div className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        {label}
-      </div>
-      <div className="mt-0.5 font-medium text-slate-900 dark:text-slate-100">
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function NumberField({
-  label,
-  value,
-  onChange,
-  prefix,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-  prefix?: string;
-}) {
-  return (
-    <div>
-      <label className="mb-1 block text-xs text-slate-600 dark:text-slate-400">
-        {label}
-      </label>
-      <div className="flex items-center gap-2">
-        {prefix ? (
-          <span className="rounded-lg border border-slate-300 px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
-            {prefix}
-          </span>
-        ) : null}
-        <InputNumber value={value} onChange={onChange} />
-      </div>
-    </div>
-  );
-}
-
-function WorkflowSuggest({ onPick }: { onPick: (name: string) => void }) {
-  const [q, setQ] = useState("");
-  const matches = useMemo(() => {
-    const s = q.toLowerCase().trim();
-    if (!s) return WORKFLOW_SUGGESTIONS.slice(0, 5);
-    return WORKFLOW_SUGGESTIONS.filter((w) => w.toLowerCase().includes(s)).slice(
-      0,
-      8
-    );
-  }, [q]);
-
-  return (
-    <div className="relative w-full max-w-xs">
-      <input
-        placeholder="Search workflows…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-      />
-      {matches.length > 0 && (
-        <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
-          {matches.map((m) => (
-            <button
-              key={m}
-              onClick={() => {
-                onPick(m);
-                setQ("");
-              }}
-              className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
-            >
-              {m}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// touch
-// touch
