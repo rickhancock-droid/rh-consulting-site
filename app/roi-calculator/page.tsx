@@ -42,12 +42,6 @@ const num1 = (n: number) =>
   new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(n);
 
 // ------- main -------
-export const metadata = {
-  title: "Agentic Automation ROI | RH Consulting",
-  description:
-    "Estimate time saved, FTE lift, labor savings, and ROI from AI agents across your workflows.",
-};
-
 export default function ROIPage() {
   const [rows, setRows] = useState<Workflow[]>([
     {
