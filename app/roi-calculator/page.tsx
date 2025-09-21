@@ -4,8 +4,14 @@
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
 
-/* ---------------- Helpers ---------------- */
-const fmtMoney = (n: number, currency: string = "USD") =>
+/* ---------- Visual accent (tweak this to your brand orange) ---------- */
+const ACCENT_HEX = "#FF6A00"; // logo-like orange
+const HOURS_PER_FTE = 2080;
+const SCHEDULER_URL =
+  "https://calendly.com/rick-hancock-rhconsulting/30min";
+
+/* ---------- Helpers ---------- */
+const fmtMoney = (n: number, currency = "USD") =>
   new Intl.NumberFormat("en-US", {
     style: "currency",
     currency,
@@ -17,17 +23,13 @@ const fmt1 = (n: number) =>
     isFinite(n) ? n : 0
   );
 
-const HOURS_PER_FTE = 2080;
-const SCHEDULER_URL =
-  "https://calendly.com/rick-hancock-rhconsulting/30min";
-
 function buildURL(base: string, params: Record<string, string | number>) {
   const qp = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => qp.set(k, String(v)));
   return `${base}?${qp.toString()}`;
 }
 
-/* ---------------- Types ---------------- */
+/* ---------- Types ---------- */
 type Row = {
   id: string;
   name: string;
@@ -45,7 +47,54 @@ type Costs = {
   amortizeMonths: number;
 };
 
-/* ---------------- NumberField (free typing) ---------------- */
+/* ---------- Workflow presets (inspired by common Salesforce-style calculators) ---------- */
+const WORKFLOW_PRESETS: Record<
+  string,
+  Omit<Row, "id" | "name"> & { label: string }
+> = {
+  lead_qual: {
+    label: "Lead qualification",
+    minutesPerTask: 6,
+    tasksPerMonth: 100,
+    people: 10,
+    automationPct: 60,
+    hourlyCost: 45,
+  },
+  faq: {
+    label: "FAQ / info requests",
+    minutesPerTask: 4,
+    tasksPerMonth: 600,
+    people: 1,
+    automationPct: 55,
+    hourlyCost: 40,
+  },
+  support_tickets: {
+    label: "Support tickets (tier-1)",
+    minutesPerTask: 7,
+    tasksPerMonth: 800,
+    people: 3,
+    automationPct: 60,
+    hourlyCost: 38,
+  },
+  crm_data: {
+    label: "CRM data entry",
+    minutesPerTask: 3,
+    tasksPerMonth: 1600,
+    people: 2,
+    automationPct: 70,
+    hourlyCost: 40,
+  },
+  ap_invoices: {
+    label: "AP / invoice processing",
+    minutesPerTask: 10,
+    tasksPerMonth: 400,
+    people: 2,
+    automationPct: 50,
+    hourlyCost: 42,
+  },
+};
+
+/* ---------- NumberField (free typing + backspace works) ---------- */
 function NumberField({
   value,
   onChange,
@@ -53,6 +102,7 @@ function NumberField({
   min,
   max,
   placeholder,
+  ariaLabel,
 }: {
   value: number;
   onChange: (v: number) => void;
@@ -60,6 +110,7 @@ function NumberField({
   min?: number;
   max?: number;
   placeholder?: string;
+  ariaLabel?: string;
 }) {
   const [raw, setRaw] = useState(String(value ?? ""));
   React.useEffect(() => setRaw(String(value ?? "")), [value]);
@@ -70,6 +121,7 @@ function NumberField({
       inputMode="decimal"
       value={raw}
       placeholder={placeholder}
+      aria-label={ariaLabel || placeholder}
       onChange={(e) => {
         const next = e.target.value;
         setRaw(next);
@@ -85,36 +137,35 @@ function NumberField({
       }}
       onBlur={() => setRaw(String(value ?? ""))}
       className={[
-        "w-full h-10 rounded-xl border",
+        "w-full h-10 rounded-xl border px-3",
         "bg-white text-slate-900 border-slate-300",
         "dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700",
-        "px-3 outline-none focus:ring-2 focus:ring-indigo-500/50",
+        "outline-none focus:ring-2 focus:ring-indigo-500/50",
         className,
       ].join(" ")}
-      aria-label={placeholder}
     />
   );
 }
 
-/* ---------------- Defaults (100-employee SMB) ---------------- */
+/* ---------- Defaults (100-employee SMB) ---------- */
 const DEFAULT_ROWS: Row[] = [
   {
     id: "lead-qual",
-    name: "Lead qualification",
-    minutesPerTask: 6,
-    tasksPerMonth: 100,
-    people: 10,
-    automationPct: 60,
-    hourlyCost: 45,
+    name: WORKFLOW_PRESETS.lead_qual.label,
+    minutesPerTask: WORKFLOW_PRESETS.lead_qual.minutesPerTask,
+    tasksPerMonth: WORKFLOW_PRESETS.lead_qual.tasksPerMonth,
+    people: WORKFLOW_PRESETS.lead_qual.people,
+    automationPct: WORKFLOW_PRESETS.lead_qual.automationPct,
+    hourlyCost: WORKFLOW_PRESETS.lead_qual.hourlyCost,
   },
   {
     id: "faq",
-    name: "FAQ / info requests",
-    minutesPerTask: 4,
-    tasksPerMonth: 600,
-    people: 1,
-    automationPct: 55,
-    hourlyCost: 40,
+    name: WORKFLOW_PRESETS.faq.label,
+    minutesPerTask: WORKFLOW_PRESETS.faq.minutesPerTask,
+    tasksPerMonth: WORKFLOW_PRESETS.faq.tasksPerMonth,
+    people: WORKFLOW_PRESETS.faq.people,
+    automationPct: WORKFLOW_PRESETS.faq.automationPct,
+    hourlyCost: WORKFLOW_PRESETS.faq.hourlyCost,
   },
 ];
 
@@ -125,13 +176,15 @@ const DEFAULT_COSTS: Costs = {
   amortizeMonths: 12,
 };
 
+/* ====================================================================== */
+
 export default function ROICalculatorPage() {
   const [adoption, setAdoption] = useState<number>(80);
   const [rows, setRows] = useState<Row[]>(DEFAULT_ROWS);
   const [costs, setCosts] = useState<Costs>(DEFAULT_COSTS);
-  const [showExplainer, setShowExplainer] = useState<boolean>(true);
+  const [showExplainer, setShowExplainer] = useState<boolean>(false); // collapsed by default
 
-  /* --------- Math --------- */
+  /* ---------- Math ---------- */
   const results = useMemo(() => {
     const adoptionRate = adoption / 100;
 
@@ -170,9 +223,6 @@ export default function ROICalculatorPage() {
       annualCosts,
       net,
       roiPct,
-      annualPlatform,
-      annualAI,
-      annualImpl,
     };
   }, [rows, adoption, costs]);
 
@@ -185,15 +235,17 @@ export default function ROICalculatorPage() {
     roi: Math.round(results.roiPct),
   });
 
-  /* --------- Styles --------- */
-  const card = "rounded-2xl border bg-white text-slate-900 border-slate-200 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-800";
+  /* ---------- Reusable styles ---------- */
+  const card =
+    "rounded-2xl border bg-white text-slate-900 border-slate-200 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-800";
   const cardMuted = card + " text-sm";
-  const gridLabel = "text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400";
+  const gridLabel =
+    "text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400";
 
-  /* --------- Render --------- */
+  /* ---------- UI ---------- */
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 space-y-6">
-      {/* Header row: title/desc + CTA */}
+      {/* Title + CTA (single line on md+) */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="text-left">
           <h1 className="text-2xl font-bold leading-tight">AI ROI Calculators</h1>
@@ -201,7 +253,6 @@ export default function ROICalculatorPage() {
             Estimate time &amp; cost savings. Defaults reflect a ~100-employee SMB—tweak for your org.
           </p>
         </div>
-
         <Link
           href={calendlyHref}
           target="_blank"
@@ -212,41 +263,43 @@ export default function ROICalculatorPage() {
         </Link>
       </div>
 
-      {/* Stat cards — top-right shows Net benefit / ROI (single source of truth) */}
+      {/* Dashboard stats with orange accent */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <div className={cardMuted + " p-4"}>
-          <div className={gridLabel}>Hours saved / yr</div>
-          <div className="text-xl font-semibold mt-0.5">
-            {fmt1(results.totalHours)}
+        {[
+          {
+            label: "Hours saved / yr",
+            main: `${fmt1(results.totalHours)}`,
+            sub: `≈ ${fmt1(results.fte)} FTE`,
+          },
+          { label: "FTE equivalent", main: fmt1(results.fte), sub: "based on 2080 hrs/yr" },
+          { label: "Labor savings / yr", main: fmtMoney(results.labor$) },
+          {
+            label: "Net benefit / ROI",
+            main: `${fmtMoney(results.net)}${
+              isFinite(results.roiPct) ? ` (${Math.round(results.roiPct)}%)` : ""
+            }`,
+          },
+        ].map((c, i) => (
+          <div
+            key={i}
+            className="rounded-2xl p-4 text-white"
+            style={{ background: ACCENT_HEX }}
+          >
+            <div className="text-[11px] uppercase tracking-wide opacity-90">
+              {c.label}
+            </div>
+            <div className="text-xl font-semibold mt-0.5">{c.main}</div>
+            {c.sub && <div className="opacity-90 text-xs">{c.sub}</div>}
           </div>
-          <div className="text-slate-400 dark:text-slate-500 text-xs">≈ {fmt1(results.fte)} FTE</div>
-        </div>
-        <div className={cardMuted + " p-4"}>
-          <div className={gridLabel}>FTE equivalent</div>
-          <div className="text-xl font-semibold mt-0.5">{fmt1(results.fte)}</div>
-          <div className="text-slate-400 dark:text-slate-500 text-xs">based on 2080 hrs/yr</div>
-        </div>
-        <div className={cardMuted + " p-4"}>
-          <div className={gridLabel}>Labor savings / yr</div>
-          <div className="text-xl font-semibold mt-0.5">{fmtMoney(results.labor$)}</div>
-        </div>
-        <div className={cardMuted + " p-4"}>
-          <div className={gridLabel}>Net benefit / ROI</div>
-          <div className="text-xl font-semibold mt-0.5">
-            {fmtMoney(results.net)}{" "}
-            {isFinite(results.roiPct) && (
-              <span className="text-slate-500 dark:text-slate-400">({Math.round(results.roiPct)}%)</span>
-            )}
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Controls row (compact) */}
+      {/* Controls (compact) */}
       <div className={card + " p-4 space-y-4"}>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           {/* Adoption slider */}
           <div>
-            <div className={gridLabel}>Adoption Rate (%)</div>
+            <div className={gridLabel}>Adoption rate (%)</div>
             <input
               type="range"
               min={0}
@@ -303,38 +356,77 @@ export default function ROICalculatorPage() {
         </div>
       </div>
 
-      {/* Workflows table (compact) */}
+      {/* Workflows (with Preset dropdown) */}
       <div className={card + " p-4 space-y-3"}>
         <div className="grid grid-cols-12 gap-2 text-[11px] font-medium text-slate-500 dark:text-slate-400">
-          <div className="col-span-3">Workflow</div>
+          <div className="col-span-4">Workflow / Preset</div>
           <div>Min/Task</div>
           <div>Tasks / mo</div>
           <div>People</div>
           <div>Automation %</div>
           <div>Hourly $</div>
           <div className="col-span-2 text-right">Annual $ saved</div>
-          <div className="col-span-2"></div>
+          <div className="col-span-1"></div>
         </div>
 
         {results.rows.map((r, idx) => (
           <div key={r.id} className="grid grid-cols-12 gap-2 items-center">
-            <input
-              type="text"
-              value={r.name}
-              onChange={(e) =>
-                setRows((rows) => {
-                  const copy = [...rows];
-                  copy[idx] = { ...rows[idx], name: e.target.value };
-                  return copy;
-                })
-              }
-              className={[
-                "col-span-3 h-10 rounded-xl border px-3",
-                "bg-white text-slate-900 border-slate-300",
-                "dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700",
-                "outline-none focus:ring-2 focus:ring-indigo-500/50",
-              ].join(" ")}
-            />
+            <div className="col-span-4 grid grid-cols-12 gap-2">
+              {/* Name input */}
+              <input
+                type="text"
+                value={r.name}
+                onChange={(e) =>
+                  setRows((rows) => {
+                    const copy = [...rows];
+                    copy[idx] = { ...rows[idx], name: e.target.value };
+                    return copy;
+                  })
+                }
+                className={[
+                  "col-span-7 h-10 rounded-xl border px-3",
+                  "bg-white text-slate-900 border-slate-300",
+                  "dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700",
+                  "outline-none focus:ring-2 focus:ring-indigo-500/50",
+                ].join(" ")}
+              />
+
+              {/* Preset dropdown */}
+              <select
+                className={[
+                  "col-span-5 h-10 rounded-xl border px-2",
+                  "bg-white text-slate-900 border-slate-300",
+                  "dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700",
+                  "outline-none focus:ring-2 focus:ring-indigo-500/50",
+                ].join(" ")}
+                value=""
+                onChange={(e) => {
+                  const key = e.target.value as keyof typeof WORKFLOW_PRESETS;
+                  if (!key) return;
+                  const p = WORKFLOW_PRESETS[key];
+                  setRows((rows) => {
+                    const copy = [...rows];
+                    copy[idx] = {
+                      ...rows[idx],
+                      name: p.label,
+                      minutesPerTask: p.minutesPerTask,
+                      tasksPerMonth: p.tasksPerMonth,
+                      people: p.people,
+                      automationPct: p.automationPct,
+                      hourlyCost: p.hourlyCost,
+                    };
+                    return copy;
+                  });
+                }}
+              >
+                <option value="">Preset…</option>
+                {Object.entries(WORKFLOW_PRESETS).map(([key, p]) => (
+                  <option key={key} value={key}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             <NumberField
               value={r.minutesPerTask}
@@ -346,6 +438,7 @@ export default function ROICalculatorPage() {
                 })
               }
               placeholder="6"
+              ariaLabel="Minutes per task"
             />
             <NumberField
               value={r.tasksPerMonth}
@@ -357,6 +450,7 @@ export default function ROICalculatorPage() {
                 })
               }
               placeholder="100"
+              ariaLabel="Tasks per month"
             />
             <NumberField
               value={r.people}
@@ -368,6 +462,7 @@ export default function ROICalculatorPage() {
                 })
               }
               placeholder="10"
+              ariaLabel="People"
             />
             <NumberField
               value={r.automationPct}
@@ -382,6 +477,7 @@ export default function ROICalculatorPage() {
                 })
               }
               placeholder="60"
+              ariaLabel="Automation %"
             />
             <NumberField
               value={r.hourlyCost}
@@ -393,13 +489,14 @@ export default function ROICalculatorPage() {
                 })
               }
               placeholder="45"
+              ariaLabel="Hourly cost"
             />
 
             <div className="col-span-2 text-right text-slate-900 dark:text-slate-100 font-medium">
-              {fmtMoney(r.dollarsSaved)}
+              {fmtMoney((r as any).dollarsSaved)}
             </div>
 
-            <div className="col-span-2 text-right">
+            <div className="col-span-1 text-right">
               <button
                 className="text-rose-500 hover:text-rose-400"
                 onClick={() =>
@@ -470,7 +567,7 @@ export default function ROICalculatorPage() {
         </div>
       </div>
 
-      {/* Explainer */}
+      {/* Explainer (collapsed by default) */}
       <div className={card + " p-0 overflow-hidden"}>
         <button
           className="w-full text-left px-4 py-3 flex items-center gap-2"
@@ -504,11 +601,9 @@ export default function ROICalculatorPage() {
                   <strong>ROI %</strong> = net benefit ÷ total annual costs.
                 </li>
               </ul>
-              <p>
-                Defaults mirror a typical <em>~100-employee SMB</em>. Tune
-                adoption and automation% to your reality. We can also model
-                license consolidation or additional headcount lift on a live
-                call.
+              <p className="mt-2">
+                Presets mirror common SMB workflows (similar to Salesforce-style ROI tools).
+                Pick a preset then adjust fields to match your org.
               </p>
             </div>
           </div>
