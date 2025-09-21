@@ -3,57 +3,78 @@ import fs from "node:fs";
 import path from "node:path";
 import Link from "next/link";
 
-type Frontmatter = {
-  title: string;
-  slug: string;
-  summary?: string;
-  industry?: string;
-};
-
 export const metadata = {
   title: "Case Studies | RH Consulting",
-  description: "Real results from visibility, data refinery, and agentic AI projects.",
+  description: "Real results from AI agents and automation delivered by RH Consulting.",
 };
 
-function getCases(): Frontmatter[] {
-  const dir = path.join(process.cwd(), "content/case-studies");
-  return fs
-    .readdirSync(dir)
-    .filter((f) => f.endsWith(".mdx"))
-    .map((f) => {
-      const file = fs.readFileSync(path.join(dir, f), "utf8");
-      const fm = /---([\s\S]*?)---/.exec(file)?.[1] ?? "";
-      const pick = (key: string) => new RegExp(`${key}:[^\\n]*`).exec(fm)?.[0].split(":")[1].trim().replace(/^"|"$/g, "");
+type CaseMeta = {
+  title: string;
+  slug: string;
+  blurb?: string;
+};
+
+function readCaseStudies(dir: string): CaseMeta[] {
+  try {
+    if (!fs.existsSync(dir)) return [];
+    const files = fs.readdirSync(dir).filter(f => f.endsWith(".mdx") || f.endsWith(".md"));
+    return files.map((file) => {
+      const slug = file.replace(/\.mdx?$/, "");
+      const raw = fs.readFileSync(path.join(dir, file), "utf8");
+      const titleMatch = raw.match(/^title:\s*["']?(.+?)["']?\s*$/m);
+      const blurbMatch = raw.match(/^blurb:\s*["']?(.+?)["']?\s*$/m);
       return {
-        title: pick("title") ?? f.replace(".mdx", ""),
-        slug: pick("slug") ?? f.replace(".mdx", ""),
-        summary: pick("summary") ?? "",
-        industry: pick("industry") ?? "",
+        title: titleMatch?.[1] ?? slug.replace(/-/g, " "),
+        slug,
+        blurb: blurbMatch?.[1],
       };
-    })
-    .sort((a, b) => a.title.localeCompare(b.title));
+    });
+  } catch {
+    return [];
+  }
 }
 
-export default function CaseStudiesIndex() {
-  const cases = getCases();
+export default function CaseStudiesPage() {
+  const contentDir = path.join(process.cwd(), "content", "case-studies");
+  const items = readCaseStudies(contentDir);
+
   return (
-    <main className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="text-4xl font-semibold tracking-tight mb-2">Case Studies</h1>
-      <p className="text-slate-400 mb-8">Browse real outcomes across SMB and enterprise programs.</p>
-      <div className="grid gap-4 md:grid-cols-2">
-        {cases.map((c) => (
-          <Link
-            key={c.slug}
-            href={`/case-studies/${c.slug}`}
-            className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 hover:bg-slate-900/70 transition"
-          >
-            <div className="text-lg font-medium">{c.title}</div>
-            {c.industry && <div className="text-xs text-slate-400 mt-1">{c.industry}</div>}
-            {c.summary && <p className="text-sm text-slate-300 mt-3">{c.summary}</p>}
-          </Link>
-        ))}
-      </div>
+    <main className="mx-auto max-w-6xl px-4 py-12">
+      <header className="mb-8">
+        <h1 className="text-3xl font-semibold text-slate-900 dark:text-slate-100">Case Studies</h1>
+        <p className="mt-2 text-slate-600 dark:text-slate-300">
+          A sampling of outcomes from RH Consulting’s AI agents & automation work.
+        </p>
+      </header>
+
+      {items.length === 0 ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-6 text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+          No case studies published yet. We’re preparing fresh write-ups—check back soon.
+        </div>
+      ) : (
+        <ul className="grid gap-6 sm:grid-cols-2">
+          {items.map((c) => (
+            <li key={c.slug} className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition dark:border-slate-800 dark:bg-slate-950">
+              <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+                <Link href={`/case-studies/${c.slug}`} className="hover:underline">
+                  {c.title}
+                </Link>
+              </h2>
+              {c.blurb && (
+                <p className="mt-2 text-slate-600 dark:text-slate-300">{c.blurb}</p>
+              )}
+              <div className="mt-4">
+                <Link
+                  href={`/case-studies/${c.slug}`}
+                  className="inline-flex items-center rounded-lg bg-indigo-600 px-3 py-1.5 text-white hover:bg-indigo-700"
+                >
+                  Read case study
+                </Link>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </main>
   );
 }
-
