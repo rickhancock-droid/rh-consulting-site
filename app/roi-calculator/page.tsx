@@ -4,19 +4,20 @@
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
 
-// ---------------- theme helpers (light/dark card & border) ----------------
-const cardBase =
-  "rounded-2xl border shadow-sm px-6 py-5 transition-colors";
-const card =
-  `${cardBase} bg-gray-50 border-gray-200 text-gray-900 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100`;
-const cardEmphasis =
-  `${cardBase} bg-orange-50 border-orange-200 text-gray-900 dark:bg-slate-800 dark:border-orange-400/40 dark:text-slate-100`;
-const pill =
-  "inline-flex items-center justify-center h-10 px-4 rounded-full bg-violet-500 text-white hover:bg-violet-600 transition-colors";
+// ---------- types ----------
+type WorkflowTemplateKey =
+  | "Lead qualification"
+  | "FAQ / info requests"
+  | "Inbound email"
+  | "CRM data entry"
+  | "Meeting notes ➜ CRM"
+  | "Support triage"
+  | "Order processing"
+  | "Report generation";
 
-// ---------------- types ----------------
-type Workflow = {
-  name: string;
+type WorkflowRow = {
+  id: string;
+  name: WorkflowTemplateKey | string;
   minPerTask: number;
   tasksPerMonth: number;
   people: number;
@@ -24,356 +25,390 @@ type Workflow = {
   hourly: number;
 };
 
-type Totals = {
-  hoursSavedYr: number;
-  fte: number;
-  laborSavingsYr: number;
-  totalAnnualCosts: number;
-  netBenefit: number;
-  roiPct: number;
-};
-
-// ---------------- constants ----------------
-const DEFAULT_WORKFLOWS: readonly string[] = [
-  "Lead qualification",
-  "FAQ / info requests",
-  "Customer support (tier 1)",
-  "CRM data entry",
-  "Order status updates",
-  "Invoice follow-ups",
-  "Scheduling",
-  "Onboarding FAQs",
-  "Internal IT helpdesk",
+// Preset workflow menu (kept concise and useful)
+const WORKFLOW_TEMPLATES: Array<{ label: WorkflowTemplateKey; defaults: Omit<WorkflowRow, "id" | "name"> & { hourly?: number } }> = [
+  {
+    label: "Lead qualification",
+    defaults: { minPerTask: 6, tasksPerMonth: 100, people: 10, automationPct: 60, hourly: 45 },
+  },
+  {
+    label: "FAQ / info requests",
+    defaults: { minPerTask: 4, tasksPerMonth: 600, people: 1, automationPct: 55, hourly: 40 },
+  },
+  {
+    label: "Inbound email",
+    defaults: { minPerTask: 5, tasksPerMonth: 1200, people: 2, automationPct: 60, hourly: 40 },
+  },
+  {
+    label: "CRM data entry",
+    defaults: { minPerTask: 3, tasksPerMonth: 1600, people: 2, automationPct: 70, hourly: 40 },
+  },
+  {
+    label: "Meeting notes ➜ CRM",
+    defaults: { minPerTask: 7, tasksPerMonth: 240, people: 6, automationPct: 60, hourly: 45 },
+  },
+  {
+    label: "Support triage",
+    defaults: { minPerTask: 3, tasksPerMonth: 900, people: 4, automationPct: 65, hourly: 42 },
+  },
+  {
+    label: "Order processing",
+    defaults: { minPerTask: 4, tasksPerMonth: 450, people: 3, automationPct: 60, hourly: 44 },
+  },
+  {
+    label: "Report generation",
+    defaults: { minPerTask: 10, tasksPerMonth: 80, people: 2, automationPct: 70, hourly: 46 },
+  },
 ];
 
-const USD = (n: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(
-    Math.round(n)
-  );
-const HRS = (n: number) =>
-  `${Math.round(n * 10) / 10} hrs`;
+// ---------- helpers ----------
+const fmtMoney = (n: number, currency = "USD") =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 0 }).format(n);
 
-// ---------------- calc helpers ----------------
-function hoursSavedPerWorkflow(w: Workflow, adoptionPct: number): number {
-  // minutes per task × tasks/mo × people × automation% × adoption% × 12 / 60
-  const hrsMo =
-    (w.minPerTask * w.tasksPerMonth * Math.max(w.people, 0) * (w.automationPct / 100) * (adoptionPct / 100)) / 60;
-  return hrsMo * 12;
-}
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+const pct = (n: number) => `${n.toFixed(0)}%`;
+const toNum = (v: string) => Number((v || "0").replace(/[^\d.]/g, "")) || 0;
 
-function totals(
-  workflows: Workflow[],
-  adoptionPct: number,
-  platformPerMo: number,
-  aiUsagePerMo: number,
-  implementationOneTime: number,
-  amortizeMonths: number
-): Totals {
-  const hoursSavedYr = workflows.reduce((acc, w) => acc + hoursSavedPerWorkflow(w, adoptionPct), 0);
-  const laborSavingsYr = workflows.reduce(
-    (acc, w) => acc + hoursSavedPerWorkflow(w, adoptionPct) * w.hourly,
-    0
-  );
-  const annualizedImpl = amortizeMonths > 0 ? (implementationOneTime / amortizeMonths) * 12 : implementationOneTime;
-  const totalAnnualCosts = platformPerMo * 12 + aiUsagePerMo * 12 + annualizedImpl;
-  const netBenefit = Math.max(laborSavingsYr - totalAnnualCosts, laborSavingsYr === 0 ? 0 : laborSavingsYr - totalAnnualCosts);
-  const roiPct = totalAnnualCosts > 0 ? (netBenefit / totalAnnualCosts) * 100 : 0;
-  const fte = hoursSavedYr / 2080;
-
-  return { hoursSavedYr, fte, laborSavingsYr, totalAnnualCosts, netBenefit, roiPct };
-}
-
-// ---------------- component ----------------
+// ---------- main ----------
 export default function RoiCalculatorPage() {
-  // Defaults that mirror ~100-employee SMB
-  const [adoptionPct, setAdoptionPct] = useState<number>(80);
-  const [platformPerMo, setPlatformPerMo] = useState<number>(300);
-  const [aiUsagePerMo, setAiUsagePerMo] = useState<number>(180);
-  const [implementationOneTime, setImplementationOneTime] = useState<number>(2500);
+  // Defaults mirror a ~100-employee SMB vibe
+  const [adoption, setAdoption] = useState<number>(80); // %
+  const [platformMo, setPlatformMo] = useState<number>(300);
+  const [aiUsageMo, setAiUsageMo] = useState<number>(180);
+  const [implOneTime, setImplOneTime] = useState<number>(2500);
   const [amortizeMonths, setAmortizeMonths] = useState<number>(12);
 
-  const [workflows, setWorkflows] = useState<Workflow[]>([
-    { name: "Lead qualification", minPerTask: 6, tasksPerMonth: 100, people: 10, automationPct: 60, hourly: 45 },
-    { name: "FAQ / info requests", minPerTask: 4, tasksPerMonth: 600, people: 1, automationPct: 55, hourly: 40 },
+  const [rows, setRows] = useState<WorkflowRow[]>([
+    rowFromTemplate("Lead qualification"),
+    rowFromTemplate("FAQ / info requests"),
   ]);
 
-  const t = useMemo(
-    () =>
-      totals(workflows, adoptionPct, platformPerMo, aiUsagePerMo, implementationOneTime, amortizeMonths),
-    [workflows, adoptionPct, platformPerMo, aiUsagePerMo, implementationOneTime, amortizeMonths]
-  );
+  function rowFromTemplate(label: WorkflowTemplateKey): WorkflowRow {
+    const t = WORKFLOW_TEMPLATES.find((x) => x.label === label)!;
+    return {
+      id: cryptoId(),
+      name: label,
+      minPerTask: t.defaults.minPerTask,
+      tasksPerMonth: t.defaults.tasksPerMonth,
+      people: t.defaults.people,
+      automationPct: t.defaults.automationPct,
+      hourly: t.defaults.hourly ?? 45,
+    };
+  }
 
-  // ---------- handlers ----------
-  const updateWorkflow = <K extends keyof Workflow>(
-    idx: number,
-    key: K,
-    value: Workflow[K]
-  ) => {
-    setWorkflows((prev) => {
-      const next = [...prev];
-      next[idx] = { ...next[idx], [key]: value };
-      return next;
+  function cryptoId() {
+    return Math.random().toString(36).slice(2, 9);
+  }
+
+  function addRow() {
+    setRows((r) => [...r, rowFromTemplate("Inbound email")]);
+  }
+
+  function removeRow(id: string) {
+    setRows((r) => (r.length > 1 ? r.filter((x) => x.id !== id) : r));
+  }
+
+  function update<K extends keyof WorkflowRow>(id: string, key: K, value: WorkflowRow[K]) {
+    setRows((r) => r.map((x) => (x.id === id ? { ...x, [key]: value } : x)));
+  }
+
+  // ---- calculations ----
+  const { annualHours, annualLaborSavings, totalAnnualCosts, netBenefit, roiPct } = useMemo(() => {
+    // hours saved per workflow = min/task × tasks/mo × people × automation% × adoption% × 12 / 60
+    const hoursByRow = rows.map((r) => {
+      const h =
+        (r.minPerTask * r.tasksPerMonth * r.people * (r.automationPct / 100) * (adoption / 100) * 12) / 60;
+      return h;
     });
-  };
+    const annualHoursSaved = hoursByRow.reduce((a, b) => a + b, 0);
 
-  const addWorkflow = () =>
-    setWorkflows((prev) => [
-      ...prev,
-      { name: "", minPerTask: 3, tasksPerMonth: 300, people: 1, automationPct: 50, hourly: 40 },
-    ]);
+    const laborSaved = rows.reduce((sum, r, i) => sum + hoursByRow[i] * r.hourly, 0);
 
-  const removeWorkflow = (idx: number) =>
-    setWorkflows((prev) => prev.filter((_, i) => i !== idx));
+    const costAnnual =
+      (platformMo + aiUsageMo) * 12 +
+      (amortizeMonths > 0 ? implOneTime * (12 / amortizeMonths) : implOneTime);
 
-  // ---------- UI helpers ----------
-  const numberCls =
-    "h-11 w-full rounded-xl bg-white/80 border border-gray-300 px-3 text-gray-900 placeholder:text-gray-500 " +
-    "focus:outline-none focus:ring-2 focus:ring-violet-500 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100";
-  const labelCls = "text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300";
+    const net = laborSaved - costAnnual;
+    const roi = costAnnual > 0 ? (net / costAnnual) * 100 : 0;
 
-  // ---------- JSX ----------
+    return {
+      annualHours: annualHoursSaved,
+      annualLaborSavings: laborSaved,
+      totalAnnualCosts: costAnnual,
+      netBenefit: net,
+      roiPct: roi,
+    };
+  }, [rows, adoption, platformMo, aiUsageMo, implOneTime, amortizeMonths]);
+
+  // ---------- UI ----------
   return (
-    <div className="mx-auto max-w-6xl px-4 sm:px-6 py-8">
-      {/* Top row: title + CTA */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="mx-auto max-w-6xl px-4 py-8">
+      {/* Header + CTA */}
+      <div className="flex items-start justify-between gap-6">
         <div>
-          <h1 className="text-3xl sm:text-4xl font-semibold text-gray-900 dark:text-slate-100">
-            AI ROI Calculators
-          </h1>
-          <p className="mt-2 text-gray-600 dark:text-slate-300">
+          <h1 className="text-4xl md:text-5xl font-semibold tracking-tight">AI ROI Calculators</h1>
+          <p className="mt-3 text-muted-foreground">
             Estimate time & cost savings. Defaults reflect a ~100-employee SMB—tweak for your org.
           </p>
         </div>
         <Link
-          className={pill}
-          href={{
-            pathname: "https://calendly.com/rh-consulting-ai/30min",
-            query: {
-              hours: t.hoursSavedYr.toFixed(1),
-              fte: (Math.round(t.fte * 10) / 10).toString(),
-              labor: Math.round(t.laborSavingsYr).toString(),
-              costs: Math.round(t.totalAnnualCosts).toString(),
-              net: Math.round(t.netBenefit).toString(),
-              roi: Math.round(t.roiPct).toString(),
-            },
-          }}
-          target="_blank"
+          href="https://calendly.com/rh-consulting/intro"
+          className="shrink-0 rounded-full bg-indigo-500 px-5 py-3 text-white font-medium shadow-lg hover:bg-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
         >
           Book a Call (passes your ROI)
         </Link>
       </div>
 
-      {/* Dashboard cards */}
-      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className={card}>
-          <div className={labelCls}>Annual Hours Saved</div>
-          <div className="mt-2 text-2xl font-semibold">{HRS(t.hoursSavedYr)}</div>
-          <div className="mt-1 text-sm text-gray-500 dark:text-slate-400">≈ {(Math.round(t.fte * 10) / 10)} FTE</div>
-        </div>
-        <div className={card}>
-          <div className={labelCls}>Annual Labor Savings</div>
-          <div className="mt-2 text-2xl font-semibold">{USD(t.laborSavingsYr)}</div>
-          <div className="mt-1 text-sm text-gray-500 dark:text-slate-400">before software costs</div>
-        </div>
-        <div className={card}>
-          <div className={labelCls}>Total Annual Costs</div>
-          <div className="mt-2 text-2xl font-semibold">{USD(t.totalAnnualCosts)}</div>
-          <div className="mt-1 text-sm text-gray-500 dark:text-slate-400">platform + usage + build</div>
-        </div>
-        <div className={cardEmphasis + " ring-1 ring-orange-300/50 dark:ring-0"}>
-          <div className="flex items-center justify-between">
-            <div className={labelCls}>Net Benefit / ROI</div>
-          </div>
-          <div className="mt-2 text-2xl font-semibold text-emerald-500">{USD(t.netBenefit)}</div>
-          <div className="mt-1 text-sm font-medium text-emerald-500">
-            {Math.round(t.roiPct)}% ROI
-          </div>
-        </div>
+      {/* KPI cards */}
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard title="ANNUAL HOURS SAVED" subtitle={`≈ ${(annualHours / 2080).toFixed(1)} FTE`}>
+          {annualHours.toFixed(1)} hrs
+        </KpiCard>
+        <KpiCard title="ANNUAL LABOR SAVINGS" subtitle="before software costs">
+          {fmtMoney(annualLaborSavings)}
+        </KpiCard>
+        <KpiCard title="TOTAL ANNUAL COSTS" subtitle="platform + usage + build">
+          {fmtMoney(totalAnnualCosts)}
+        </KpiCard>
+        <KpiCard
+          title="NET BENEFIT / ROI"
+          subtitle={`${fmtMoney(netBenefit)} net`}
+          accent
+        >
+          <span className={netBenefit >= 0 ? "text-emerald-400" : "text-rose-400"}>
+            {pct(roiPct)}
+          </span>
+        </KpiCard>
       </div>
 
-      {/* Program inputs row */}
-      <div className={`${card} mt-6`}>
-        <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
-          <div>
-            <div className={labelCls}>Adoption Rate (%)</div>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={adoptionPct}
-              onChange={(e) => setAdoptionPct(Number(e.target.value))}
-              className="mt-2 w-full accent-violet-500"
-            />
-            <div className="mt-1 text-sm text-gray-500 dark:text-slate-400">
-              {adoptionPct}% of eligible work
-            </div>
-          </div>
-          <div>
-            <div className={labelCls}>Platform cost / mo</div>
-            <input
-              className={`${numberCls} mt-2`}
-              value={platformPerMo}
-              onChange={(e) => setPlatformPerMo(Number(e.target.value || 0))}
-              inputMode="numeric"
-            />
-          </div>
-          <div>
-            <div className={labelCls}>AI usage / mo</div>
-            <input
-              className={`${numberCls} mt-2`}
-              value={aiUsagePerMo}
-              onChange={(e) => setAiUsagePerMo(Number(e.target.value || 0))}
-              inputMode="numeric"
-            />
-          </div>
-          <div>
-            <div className={labelCls}>Implementation (one-time)</div>
-            <input
-              className={`${numberCls} mt-2`}
-              value={implementationOneTime}
-              onChange={(e) => setImplementationOneTime(Number(e.target.value || 0))}
-              inputMode="numeric"
-            />
-          </div>
-          <div>
-            <div className={labelCls}>Amortize (months)</div>
-            <input
-              className={`${numberCls} mt-2`}
-              value={amortizeMonths}
-              onChange={(e) => setAmortizeMonths(Number(e.target.value || 0))}
-              inputMode="numeric"
-            />
-          </div>
+      {/* Global controls */}
+      <div className="mt-6 grid gap-4 rounded-2xl border border-border/50 bg-card p-4 md:grid-cols-12">
+        <div className="md:col-span-12">
+          <label className="block text-xs font-semibold tracking-wider mb-2">Adoption Rate (%)</label>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={adoption}
+            onChange={(e) => setAdoption(toNum(e.target.value))}
+            className="w-full"
+          />
+          <div className="text-xs text-muted-foreground mt-1">{pct(adoption)} of eligible work</div>
         </div>
+
+        <NumberField
+          className="md:col-span-3"
+          label="Platform cost / mo"
+          value={platformMo}
+          onChange={(n) => setPlatformMo(clamp(n, 0, 100000))}
+        />
+        <NumberField
+          className="md:col-span-3"
+          label="AI usage / mo"
+          value={aiUsageMo}
+          onChange={(n) => setAiUsageMo(clamp(n, 0, 100000))}
+        />
+        <NumberField
+          className="md:col-span-3"
+          label="Implementation (one-time)"
+          value={implOneTime}
+          onChange={(n) => setImplOneTime(clamp(n, 0, 1000000))}
+        />
+        <NumberField
+          className="md:col-span-3"
+          label="Amortize (months)"
+          value={amortizeMonths}
+          onChange={(n) => setAmortizeMonths(clamp(n, 1, 60))}
+        />
       </div>
 
       {/* Workflows table */}
-      <div className={`${card} mt-6`}>
-        <div className="grid grid-cols-12 gap-3 text-sm">
-          <div className="col-span-4 sm:col-span-3 md:col-span-3 lg:col-span-3">
-            <div className={labelCls}>Workflow</div>
-          </div>
-          <div className="col-span-2 sm:col-span-1">
-            <div className={labelCls}>Min/Task</div>
-          </div>
-          <div className="col-span-2 sm:col-span-2">
-            <div className={labelCls}>Tasks/mo</div>
-          </div>
-          <div className="col-span-2 sm:col-span-2">
-            <div className={labelCls}>People</div>
-          </div>
-          <div className="col-span-2 sm:col-span-2">
-            <div className={labelCls}>Automation %</div>
-          </div>
-          <div className="col-span-2 sm:col-span-2">
-            <div className={labelCls}>Hourly $</div>
-          </div>
-          <div className="col-span-2 sm:col-span-2 text-right">
-            <div className={labelCls}>Annual $ saved</div>
-          </div>
+      <div className="mt-6 rounded-2xl border border-border/50 bg-card p-4">
+        <div className="grid grid-cols-12 gap-3 text-xs font-semibold tracking-wider text-muted-foreground mb-2">
+          <div className="col-span-3">Workflow</div>
+          <div className="col-span-1">Min/Task</div>
+          <div className="col-span-2">Tasks/mo</div>
+          <div className="col-span-2">People</div>
+          <div className="col-span-2">Automation %</div>
+          <div className="col-span-2">Hourly $</div>
         </div>
 
-        <datalist id="workflow-options">
-          {DEFAULT_WORKFLOWS.map((w) => (
-            <option value={w} key={w} />
-          ))}
-        </datalist>
-
-        {workflows.map((w, idx) => {
-          const saved = hoursSavedPerWorkflow(w, adoptionPct) * w.hourly;
-          return (
-            <div key={idx} className="mt-3 grid grid-cols-12 gap-3 items-center">
-              {/* Searchable dropdown (datalist) */}
-              <div className="col-span-4 sm:col-span-3 md:col-span-3 lg:col-span-3">
-                <input
-                  list="workflow-options"
-                  className={numberCls}
-                  value={w.name}
-                  onChange={(e) => updateWorkflow(idx, "name", e.target.value)}
-                  placeholder="Select or type workflow…"
-                />
+        <div className="space-y-3">
+          {rows.map((r) => (
+            <div key={r.id} className="grid grid-cols-12 gap-3 items-center">
+              {/* Workflow simple searchable select (type-to-search) */}
+              <div className="col-span-3">
+                <label className="sr-only">Workflow</label>
+                <select
+                  value={r.name}
+                  onChange={(e) => {
+                    const label = e.target.value as WorkflowTemplateKey;
+                    const t = WORKFLOW_TEMPLATES.find((x) => x.label === label);
+                    if (t) {
+                      // When picking a template, hydrate the row with sensible defaults
+                      update(r.id, "name", label);
+                      update(r.id, "minPerTask", t.defaults.minPerTask);
+                      update(r.id, "tasksPerMonth", t.defaults.tasksPerMonth);
+                      update(r.id, "people", t.defaults.people);
+                      update(r.id, "automationPct", t.defaults.automationPct);
+                      if (t.defaults.hourly) update(r.id, "hourly", t.defaults.hourly);
+                    } else {
+                      update(r.id, "name", label);
+                    }
+                  }}
+                  className="w-full rounded-xl bg-background border border-border/60 px-3 py-2"
+                >
+                  {WORKFLOW_TEMPLATES.map((opt) => (
+                    <option key={opt.label} value={opt.label}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <div className="col-span-2 sm:col-span-1">
-                <input
-                  className={numberCls}
-                  value={w.minPerTask}
-                  onChange={(e) => updateWorkflow(idx, "minPerTask", Number(e.target.value || 0))}
-                  inputMode="numeric"
+              <div className="col-span-1">
+                <NumberField
+                  value={r.minPerTask}
+                  onChange={(n) => update(r.id, "minPerTask", clamp(n, 0, 600))}
                 />
               </div>
-              <div className="col-span-2 sm:col-span-2">
-                <input
-                  className={numberCls}
-                  value={w.tasksPerMonth}
-                  onChange={(e) => updateWorkflow(idx, "tasksPerMonth", Number(e.target.value || 0))}
-                  inputMode="numeric"
+              <div className="col-span-2">
+                <NumberField
+                  value={r.tasksPerMonth}
+                  onChange={(n) => update(r.id, "tasksPerMonth", clamp(n, 0, 1_000_000))}
                 />
               </div>
-              <div className="col-span-2 sm:col-span-2">
-                <input
-                  className={numberCls}
-                  value={w.people}
-                  onChange={(e) => updateWorkflow(idx, "people", Number(e.target.value || 0))}
-                  inputMode="numeric"
+              <div className="col-span-2">
+                <NumberField
+                  value={r.people}
+                  onChange={(n) => update(r.id, "people", clamp(n, 0, 100000))}
                 />
               </div>
-              <div className="col-span-2 sm:col-span-2">
-                <input
-                  className={numberCls}
-                  value={w.automationPct}
-                  onChange={(e) => updateWorkflow(idx, "automationPct", Number(e.target.value || 0))}
-                  inputMode="numeric"
+              <div className="col-span-2">
+                <NumberField
+                  value={r.automationPct}
+                  onChange={(n) => update(r.id, "automationPct", clamp(n, 0, 100))}
                 />
               </div>
-              <div className="col-span-2 sm:col-span-2">
-                <input
-                  className={numberCls}
-                  value={w.hourly}
-                  onChange={(e) => updateWorkflow(idx, "hourly", Number(e.target.value || 0))}
-                  inputMode="numeric"
+              <div className="col-span-2">
+                <NumberField
+                  value={r.hourly}
+                  onChange={(n) => update(r.id, "hourly", clamp(n, 0, 1000))}
                 />
-              </div>
-
-              <div className="col-span-2 sm:col-span-2 text-right text-gray-900 dark:text-slate-100 font-medium">
-                {USD(saved)}
               </div>
 
               <div className="col-span-12 flex justify-end">
                 <button
-                  className="text-sm text-rose-500 hover:text-rose-600"
-                  onClick={() => removeWorkflow(idx)}
+                  className="text-rose-400 hover:text-rose-300 text-sm"
+                  onClick={() => removeRow(r.id)}
                 >
                   Remove
                 </button>
               </div>
             </div>
-          );
-        })}
+          ))}
+        </div>
 
         <div className="mt-4">
-          <button className="rounded-xl px-4 py-2 bg-gray-900 text-white hover:bg-black dark:bg-slate-700 dark:hover:bg-slate-600"
-            onClick={addWorkflow}
+          <button
+            onClick={addRow}
+            className="rounded-xl border border-border px-3 py-2 text-sm hover:bg-muted/20"
           >
             + Add workflow
           </button>
         </div>
       </div>
 
-      {/* Explainer */}
-      <details className={`${card} mt-6`}>
-        <summary className="cursor-pointer text-base font-semibold">How we calculate ROI</summary>
-        <ul className="mt-4 space-y-3 text-gray-700 dark:text-slate-300">
-          <li><strong>Hours saved / workflow</strong> = minutes per task × tasks/mo × people × automation% × adoption% × 12 months ÷ 60.</li>
-          <li><strong>Annual $ saved</strong> = hours saved × hourly cost (loaded).</li>
-          <li><strong>Total annual costs</strong> = (platform/mo + AI usage/mo) × 12 + (implementation ÷ amortize months) × 12.</li>
-          <li><strong>Net benefit</strong> = annual labor savings − total annual costs.</li>
-          <li><strong>ROI %</strong> = net benefit ÷ total annual costs.</li>
-        </ul>
-        <p className="mt-3 text-sm text-gray-500 dark:text-slate-400">
-          Defaults mirror a typical ~100-employee SMB. Tune adoption and automation% to your reality.
-        </p>
+      {/* Calculation Summary (carrot) */}
+      <details className="mt-6 rounded-2xl border border-border/50 bg-card p-4">
+        <summary className="cursor-pointer text-sm font-semibold">Calculation Summary</summary>
+        <div className="mt-4 space-y-3 text-sm leading-6">
+          <p>
+            <strong>Benefit:</strong> We estimate a portion of repetitive work shifts from humans to AI
+            agents, with adoption ramping over time. Hours saved are based on:{" "}
+            <em>
+              employees × minutes per task × tasks per month × automation % × adoption % × 12 months
+            </em>
+            . This reflects productivity gains from reduced manual effort and faster completion.
+          </p>
+          <p>
+            <strong>Program Cost:</strong> Includes monthly platform costs, AI usage fees, and a
+            one-time implementation cost, amortized across the selected number of months.
+          </p>
+          <p>
+            <strong>Net Impact:</strong> Net benefit equals annual labor savings minus total annual
+            costs. ROI % is <em>net benefit ÷ total annual costs</em>.
+          </p>
+        </div>
       </details>
+
+      {/* Disclaimer (always visible) */}
+      <div className="mt-4 text-xs text-muted-foreground leading-6">
+        <p>
+          The results of this calculator are provided for illustrative purposes only to help you
+          explore potential benefits of AI automation in your organization. Actual outcomes will vary
+          and are not a guarantee or commitment of financial return.
+        </p>
+        <p className="mt-2">
+          Results depend on factors including but not limited to implementation practices, user
+          adoption, workflow design and configurations, organizational processes, market conditions,
+          and external economic factors. All calculations are presented in US dollars unless otherwise
+          noted.
+        </p>
+      </div>
     </div>
   );
 }
+
+// ---------- small components ----------
+function KpiCard({
+  title,
+  subtitle,
+  children,
+  accent = false,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+  accent?: boolean;
+}) {
+  return (
+    <div
+      className={[
+        "rounded-2xl border px-5 py-4",
+        accent ? "border-amber-400/40" : "border-border/60",
+        "bg-card",
+      ].join(" ")}
+    >
+      <div className="text-xs font-semibold tracking-wider text-muted-foreground">{title}</div>
+      <div className="mt-2 text-3xl font-semibold">{children}</div>
+      {subtitle && <div className="mt-1 text-xs text-muted-foreground">{subtitle}</div>}
+    </div>
+  );
+}
+
+function NumberField({
+  label,
+  value,
+  onChange,
+  className = "",
+}: {
+  label?: string;
+  value: number;
+  onChange: (n: number) => void;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      {label && <label className="block text-xs font-semibold tracking-wider mb-1">{label}</label>}
+      <input
+        type="text"
+        inputMode="decimal"
+        value={String(value)}
+        onChange={(e) => onChange(toNum(e.target.value))}
+        className="w-full rounded-xl bg-background border border-border/60 px-3 py-2"
+      />
+    </div>
+  );
+}
+
