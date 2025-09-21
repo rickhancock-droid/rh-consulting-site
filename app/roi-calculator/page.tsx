@@ -1,26 +1,14 @@
-# 0) Be sure you're inside the repo root
-pwd
-
-# 1) Switch to your working branch (you've been using fix/home-restore)
-git checkout fix/home-restore || git switch fix/home-restore
-
-# 2) Install PDF deps
-npm i jspdf html2canvas
-
-# 3) Back up your current ROI page (optional)
-mkdir -p .backup && cp -f app/roi-calculator/page.tsx .backup/page.roi.tsx 2>/dev/null || true
-
-# 4) Replace the ROI page with the fixed layout + PDF + CSV + summary + disclaimer
-cat > app/roi-calculator/page.tsx << 'TSX'
 // app/roi-calculator/page.tsx
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
-// ----- constants -----
-const CALENDLY_URL = "https://calendly.com/your-handle/30min"; // <-- swap later
+// ---------- Config ----------
+const CALENDLY_URL =
+  "https://calendly.com/rick-hancock-rhconsulting/30min?utm_source=roi"; // update if needed
 
+// Nice, short list of suggested workflows (searchable via <datalist/>)
 const WORKFLOW_SUGGESTIONS = [
   "Lead qualification",
   "FAQ / info requests",
@@ -29,521 +17,686 @@ const WORKFLOW_SUGGESTIONS = [
   "Order processing",
   "Appointment scheduling",
   "Ticket routing & tagging",
-  "Knowledge-base answer drafting",
+  "Knowledge-base draft answers",
   "Invoice reconciliation",
 ];
 
-// ----- types -----
+// Colors (Tailwind utility classes)
+const ORANGE_BTN =
+  "inline-flex items-center justify-center rounded-md bg-orange-600 px-4 py-2 text-white hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900";
+const KPI_CARD =
+  "rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900";
+const SECTION_CARD =
+  "rounded-2xl border border-slate-200 bg-white p-4 md:p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900";
+
+// ---------- Types ----------
 type Workflow = {
   id: string;
   name: string;
-  minPerTask: number;
+  minutesPerTask: number;
   tasksPerMonth: number;
   people: number;
-  automationPct: number; // 0-100
-  hourly: number;
+  automationPct: number; // 0..100
+  hourly: number; // loaded hourly cost
 };
 
-// ----- helpers -----
-const fmtMoney = (n: number, currency: string = "USD") =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency }).format(n);
+type ProgramCosts = {
+  monthlyPlatformCost: number;
+  monthlyAIUsageCost: number;
+  implementationCost: number; // one-time
+  implementationAmortMonths: number; // months
+};
 
-const fmtHours = (n: number) =>
-  new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(n) + " hrs";
+// ---------- Helpers ----------
+const toCurrency = (n: number, currency = "USD") =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(Number.isFinite(n) ? n : 0);
 
-const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+const toNum1 = (n: number) =>
+  new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 1,
+  }).format(Number.isFinite(n) ? n : 0);
 
-const fteFromHours = (hours: number) => hours / 2080; // ≈ 2080 hrs/yr
+const clamp = (v: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, v));
 
-// ----- main page -----
+const HOURS_PER_FTE = 2080;
+
+// ---------- Smart Number Field (free typing & backspace) ----------
+type NumberFieldProps = {
+  label?: string;
+  value: number;
+  onChange: (n: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  className?: string;
+  suffix?: string;
+};
+
+function NumberField({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+  step,
+  className,
+  suffix,
+}: NumberFieldProps) {
+  const [text, setText] = useState<string>(String(value));
+  const lastValue = useRef<number>(value);
+
+  useEffect(() => {
+    // keep input in sync if parent value changes elsewhere
+    if (value !== lastValue.current) {
+      lastValue.current = value;
+      setText(String(value));
+    }
+  }, [value]);
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const t = e.target.value;
+    setText(t);
+    // If it's a clean number, propagate immediately; otherwise wait for blur
+    const num = Number(t);
+    if (!Number.isNaN(num) && t.trim() !== "") {
+      let v = num;
+      if (min !== undefined) v = Math.max(min, v);
+      if (max !== undefined) v = Math.min(max, v);
+      lastValue.current = v;
+      onChange(v);
+    }
+  }
+
+  function handleBlur() {
+    const num = Number(text);
+    let v = Number.isNaN(num) ? value : num;
+    if (min !== undefined) v = Math.max(min, v);
+    if (max !== undefined) v = Math.min(max, v);
+    lastValue.current = v;
+    setText(String(v));
+    onChange(v);
+  }
+
+  return (
+    <label className={`flex flex-col gap-1 ${className ?? ""}`}>
+      {label && (
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+          {label}
+        </span>
+      )}
+      <div className="relative">
+        <input
+          inputMode="decimal"
+          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-orange-900/40"
+          value={text}
+          onChange={handleChange}
+          onBlur={handleBlur}
+          step={step}
+        />
+        {suffix ? (
+          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500 dark:text-slate-400">
+            {suffix}
+          </span>
+        ) : null}
+      </div>
+    </label>
+  );
+}
+
+// ---------- Main Page ----------
 export default function RoiCalculatorPage() {
   // Program-level inputs
-  const [adoption, setAdoption] = useState<number>(80); // % of eligible work that uses agents
-  const [platformPerMo, setPlatformPerMo] = useState<number>(300);
-  const [aiUsagePerMo, setAiUsagePerMo] = useState<number>(180);
-  const [implementation, setImplementation] = useState<number>(2500);
-  const [amortizeMonths, setAmortizeMonths] = useState<number>(12);
+  const [adoptionPct, setAdoptionPct] = useState<number>(80); // % of eligible work using agents
+  const [currency] = useState<string>("USD");
+
+  const [costs, setCosts] = useState<ProgramCosts>({
+    monthlyPlatformCost: 1200,
+    monthlyAIUsageCost: 600,
+    implementationCost: 12000,
+    implementationAmortMonths: 12,
+  });
 
   // Workflows
   const [rows, setRows] = useState<Workflow[]>([
     {
-      id: crypto.randomUUID(),
-      name: "Lead qualification",
-      minPerTask: 6,
-      tasksPerMonth: 100,
-      people: 10,
+      id: cryptoRandom(),
+      name: "FAQ / info requests",
+      minutesPerTask: 4,
+      tasksPerMonth: 1500,
+      people: 3,
       automationPct: 60,
-      hourly: 45,
+      hourly: 40,
     },
     {
-      id: crypto.randomUUID(),
-      name: "FAQ / info requests",
-      minPerTask: 4,
+      id: cryptoRandom(),
+      name: "Lead qualification",
+      minutesPerTask: 6,
       tasksPerMonth: 600,
-      people: 1,
-      automationPct: 55,
-      hourly: 40,
+      people: 2,
+      automationPct: 50,
+      hourly: 45,
     },
   ]);
 
-  const addWorkflow = () =>
-    setRows((r) => [
-      ...r,
+  function cryptoRandom() {
+    // small unique id
+    return Math.random().toString(36).slice(2, 9);
+  }
+
+  function updateRow(id: string, patch: Partial<Workflow>) {
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+
+  function addRow() {
+    setRows((prev) => [
+      ...prev,
       {
-        id: crypto.randomUUID(),
+        id: cryptoRandom(),
         name: "",
-        minPerTask: 5,
-        tasksPerMonth: 200,
+        minutesPerTask: 5,
+        tasksPerMonth: 500,
         people: 1,
-        automationPct: 50,
-        hourly: 40,
+        automationPct: 40,
+        hourly: 45,
       },
     ]);
+  }
 
-  const removeWorkflow = (id: string) =>
-    setRows((r) => (r.length > 1 ? r.filter((x) => x.id !== id) : r)); // keep at least one
+  function removeRow(id: string) {
+    setRows((prev) => prev.filter((r) => r.id !== id));
+  }
 
-  // ----- calculations -----
-  const {
-    totalHoursSaved,
-    totalLaborSavings,
-    totalAnnualCosts,
-    netBenefit,
-    roiPct,
-  } = useMemo(() => {
-    const adopt = adoption / 100;
-
-    let hours = 0;
-    let labor$ = 0;
-
-    rows.forEach((w) => {
-      const minutesYear = w.minPerTask * w.tasksPerMonth * 12;
-      const hoursYear = (minutesYear / 60) * w.people * (w.automationPct / 100) * adopt;
-      hours += hoursYear;
-      labor$ += hoursYear * w.hourly;
+  // ---------- Calculations ----------
+  const results = useMemo(() => {
+    // per-row
+    const perRow = rows.map((r) => {
+      const monthlyMinutesSaved =
+        r.minutesPerTask *
+        r.tasksPerMonth *
+        r.people *
+        (adoptionPct / 100) *
+        (r.automationPct / 100);
+      const annualHoursSaved = (monthlyMinutesSaved * 12) / 60;
+      const laborSavings = annualHoursSaved * r.hourly;
+      return { ...r, annualHoursSaved, laborSavings };
     });
 
-    const annualCosts = (platformPerMo + aiUsagePerMo) * 12 + implementation / Math.max(1, amortizeMonths);
-    const net = labor$ - annualCosts;
-    const roi = annualCosts > 0 ? (net / annualCosts) * 100 : 0;
+    // totals
+    const totalHoursSaved = perRow.reduce((a, b) => a + b.annualHoursSaved, 0);
+    const totalLaborSavings = perRow.reduce((a, b) => a + b.laborSavings, 0);
+
+    const annualPlatform = costs.monthlyPlatformCost * 12;
+    const annualAIUsage = costs.monthlyAIUsageCost * 12;
+    const annualizedImpl =
+      costs.implementationAmortMonths > 0
+        ? (costs.implementationCost * 12) / costs.implementationAmortMonths
+        : costs.implementationCost; // guard divide-by-0
+
+    const totalAnnualCosts = annualPlatform + annualAIUsage + annualizedImpl;
+
+    const netBenefit = totalLaborSavings - totalAnnualCosts;
+    const roiPct =
+      totalAnnualCosts > 0 ? (netBenefit / totalAnnualCosts) * 100 : 0;
+
+    const fteSaved = totalHoursSaved / HOURS_PER_FTE;
 
     return {
-      totalHoursSaved: hours,
-      totalLaborSavings: labor$,
-      totalAnnualCosts: annualCosts,
-      netBenefit: net,
-      roiPct: roi,
+      perRow,
+      totalHoursSaved,
+      totalLaborSavings,
+      totalAnnualCosts,
+      netBenefit,
+      roiPct,
+      fteSaved,
+      annualPlatform,
+      annualAIUsage,
+      annualizedImpl: annualizedImpl,
     };
-  }, [adoption, platformPerMo, aiUsagePerMo, implementation, amortizeMonths, rows]);
+  }, [rows, adoptionPct, costs]);
 
-  // ----- CSV -----
-  const exportCSV = () => {
-    const header = [
+  // ---------- Export helpers (CSV & PDF light) ----------
+  function downloadCSV() {
+    const headers = [
       "Workflow",
-      "Min/Task (min)",
-      "Tasks/mo",
+      "Minutes/Task",
+      "Tasks/Month",
       "People",
-      "Automation %",
-      "Hourly $",
-    ].join(",");
-
-    const lines = rows.map((w) =>
-      [
-        `"${w.name.replace(/"/g, '""')}"`,
-        w.minPerTask,
-        w.tasksPerMonth,
-        w.people,
-        w.automationPct,
-        w.hourly,
-      ].join(",")
-    );
-
+      "Automation%",
+      "Hourly$",
+      "Annual Hours Saved",
+      "Labor Savings",
+    ];
+    const body = results.perRow
+      .map((r) =>
+        [
+          r.name,
+          r.minutesPerTask,
+          r.tasksPerMonth,
+          r.people,
+          r.automationPct,
+          r.hourly,
+          toNum1(r.annualHoursSaved),
+          Math.round(r.laborSavings),
+        ].join(",")
+      )
+      .join("\n");
     const totals = [
       "",
       "",
       "",
       "",
-      "Totals",
       "",
+      "",
+      toNum1(results.totalHoursSaved),
+      Math.round(results.totalLaborSavings),
     ].join(",");
 
-    const summary = [
-      "",
-      "",
-      "",
-      "",
-      `Hours Saved/yr: ${totalHoursSaved.toFixed(1)}`,
-      `Labor $/yr: ${Math.round(totalLaborSavings)}`,
-    ].join(",");
-
-    const blob = new Blob([header + "\n" + lines.join("\n") + "\n" + totals + "\n" + summary], {
-      type: "text/csv;charset=utf-8;",
-    });
-
+    const csv = [headers.join(","), body, totals].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "roi-results.csv";
-    document.body.appendChild(a);
+    a.href = url;
+    a.download = "roi-summary.csv";
     a.click();
-    a.remove();
-  };
+    URL.revokeObjectURL(url);
+  }
 
-  // ----- PDF -----
-  const pdfRef = useRef<HTMLDivElement | null>(null);
-  const downloadPDF = async () => {
-    if (!pdfRef.current) return;
-    const [html2canvas, { jsPDF }] = await Promise.all([
-      import("html2canvas").then((m) => m.default),
-      import("jspdf"),
-    ]);
+  // Basic PDF (screenshot of the calculator area). You already installed html2canvas & jspdf.
+  async function downloadPDF() {
+    const area = document.getElementById("roi-area");
+    if (!area) return;
+    const { default: html2canvas } = await import("html2canvas");
+    const { jsPDF } = await import("jspdf");
 
-    const canvas = await html2canvas(pdfRef.current, {
-      backgroundColor: getComputedStyle(document.body).backgroundColor || "#0b0f1a",
-      scale: 2,
-      useCORS: true,
-    });
-
+    const canvas = await html2canvas(area, { scale: 2 });
     const imgData = canvas.toDataURL("image/png");
-    // Single-page landscape PDF better matches our layout
-    const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
-    const ratio = Math.min(pageW / canvas.width, pageH / canvas.height);
-    const imgW = canvas.width * ratio;
-    const imgH = canvas.height * ratio;
-    const x = (pageW - imgW) / 2;
-    const y = (pageH - imgH) / 2;
-    pdf.addImage(imgData, "PNG", x, y, imgW, imgH);
+
+    const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const margin = 24;
+    const usable = pageWidth - margin * 2;
+    const imgWidth = usable;
+    const imgHeight = (canvas.height / canvas.width) * imgWidth;
+
+    pdf.text("RH Consulting — ROI Summary", margin, 28);
+    pdf.addImage(imgData, "PNG", margin, 40, imgWidth, imgHeight);
     pdf.save("RH-Consulting-ROI.pdf");
-  };
+  }
 
-  // ----- UI helpers -----
-  const setField =
-    <K extends keyof Workflow>(id: string, key: K) =>
-    (v: number | string) =>
-      setRows((r) =>
-        r.map((w) =>
-          w.id !== id
-            ? w
-            : {
-                ...w,
-                [key]:
-                  typeof w[key] === "number"
-                    ? Number(v || 0)
-                    : String(v),
-              } as Workflow
-        )
-      );
-
-  const Card = ({
-    title,
-    subtitle,
-    value,
-    highlight = false,
-  }: {
-    title: string;
-    subtitle?: string;
-    value: React.ReactNode;
-    highlight?: boolean;
-  }) => (
-    <div
-      className={[
-        "rounded-2xl border p-5",
-        highlight
-          ? "border-orange-500/40 bg-orange-500/5"
-          : "border-white/10 bg-white/5",
-      ].join(" ")}
-    >
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">{title}</div>
-      <div className="mt-2 text-2xl font-semibold">{value}</div>
-      {subtitle ? (
-        <div className="mt-1 text-xs text-muted-foreground">{subtitle}</div>
-      ) : null}
-    </div>
-  );
-
-  // ----- render -----
+  // ---------- UI ----------
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8 space-y-6">
-      {/* Header & Call to action */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl sm:text-4xl font-semibold">AI ROI Calculators</h1>
-          <p className="mt-2 text-muted-foreground">
-            Estimate time & cost savings. Defaults reflect a ~100-employee SMB—tweak for your org.
+    <div className="mx-auto max-w-6xl px-4 py-6 md:py-8" id="roi-area">
+      {/* Top: title + CTA aligned to a single row */}
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col">
+          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+            AI ROI Calculators
+          </h1>
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            Estimate time &amp; cost savings. Defaults reflect a ~100-employee SMB—tweak for your org.
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <a
-            href={CALENDLY_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 font-medium shadow"
-          >
-            Book a Call (passes your ROI)
-          </a>
-          <button
-            onClick={downloadPDF}
-            className="rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 px-4 py-2 text-sm font-medium"
-          >
-            Download PDF
-          </button>
-          <button
-            onClick={exportCSV}
-            className="rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 px-4 py-2 text-sm font-medium"
-          >
-            Export CSV
-          </button>
+        <a
+          className={ORANGE_BTN}
+          href={CALENDLY_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Book a call with these results
+        </a>
+      </div>
+
+      {/* KPI row (ROI big + 4 tiles) */}
+      <div className="mt-4 grid gap-3 md:grid-cols-5">
+        <div className={`${KPI_CARD} md:col-span-1 flex flex-col justify-center`}>
+          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            ROI
+          </div>
+          <div className="mt-1 text-2xl font-bold text-emerald-600">
+            {toNum1(results.roiPct)}%
+          </div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Net Benefit / Total Costs
+          </div>
+        </div>
+
+        <div className={`${KPI_CARD}`}>
+          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            Annual Hours Saved
+          </div>
+          <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+            {toNum1(results.totalHoursSaved)}
+          </div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            ≈ {toNum1(results.fteSaved)} FTE
+          </div>
+        </div>
+
+        <div className={`${KPI_CARD}`}>
+          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            Annual Labor Savings
+          </div>
+          <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+            {toCurrency(results.totalLaborSavings, currency)}
+          </div>
+        </div>
+
+        <div className={`${KPI_CARD}`}>
+          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            Total Annual Costs
+          </div>
+          <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+            {toCurrency(results.totalAnnualCosts, currency)}
+          </div>
+        </div>
+
+        <div className={`${KPI_CARD}`}>
+          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            Net Benefit
+          </div>
+          <div className="mt-1 text-lg font-semibold text-emerald-600">
+            {toCurrency(results.netBenefit, currency)}
+          </div>
         </div>
       </div>
 
-      {/* Summary cards */}
-      <div ref={pdfRef} className="space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card
-            title="Annual hours saved"
-            value={fmtHours(totalHoursSaved)}
-            subtitle={`≈ ${fteFromHours(totalHoursSaved).toFixed(1)} FTE`}
-          />
-          <Card
-            title="Annual labor savings"
-            value={fmtMoney(totalLaborSavings)}
-            subtitle="before software costs"
-          />
-          <Card
-            title="Total annual costs"
-            value={fmtMoney(totalAnnualCosts)}
-            subtitle="platform + usage + build"
-          />
-          <Card
-            title="Net benefit / ROI"
-            value={
-              <div>
-                {fmtMoney(netBenefit)}
-                <span className="ml-2 text-emerald-400 font-medium">
-                  ({Math.round(roiPct)}% ROI)
-                </span>
-              </div>
-            }
-            highlight
-          />
+      {/* Adoption + Costs */}
+      <div className="mt-5 grid gap-4 md:grid-cols-3">
+        <div className={`${SECTION_CARD} md:col-span-1`}>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Adoption
+            </h2>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              % of eligible work using agents
+            </span>
+          </div>
+          <div className="mt-3 flex items-center gap-3">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={adoptionPct}
+              onChange={(e) => setAdoptionPct(Number(e.target.value))}
+              className="w-full accent-orange-600"
+            />
+            <div className="w-14 text-right text-sm font-medium text-slate-900 dark:text-slate-100">
+              {adoptionPct}%
+            </div>
+          </div>
         </div>
 
-        {/* Program inputs */}
-        <section className="rounded-2xl border border-white/10 bg-white/5 p-5 space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-            {/* Adoption slider spans full width on small, 2 cols on large */}
-            <div className="lg:col-span-2">
-              <label className="block text-xs uppercase tracking-wide text-muted-foreground mb-2">
-                Adoption rate (%)
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={adoption}
-                onChange={(e) => setAdoption(Number(e.target.value))}
-                className="w-full"
-              />
-              <div className="mt-1 text-xs text-muted-foreground">
-                {adoption}% of eligible work
-              </div>
-            </div>
-
+        <div className={`${SECTION_CARD} md:col-span-2`}>
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            Program Costs
+          </h2>
+          <div className="mt-3 grid gap-3 md:grid-cols-4">
             <NumberField
-              label="Platform cost / mo"
-              value={platformPerMo}
-              onChange={setPlatformPerMo}
+              label="Platform (monthly)"
+              value={costs.monthlyPlatformCost}
+              onChange={(n) =>
+                setCosts((c) => ({ ...c, monthlyPlatformCost: Math.max(0, n) }))
+              }
+              min={0}
+              step={50}
+              suffix="$"
             />
-            <NumberField label="AI usage / mo" value={aiUsagePerMo} onChange={setAiUsagePerMo} />
+            <NumberField
+              label="AI Usage (monthly)"
+              value={costs.monthlyAIUsageCost}
+              onChange={(n) =>
+                setCosts((c) => ({ ...c, monthlyAIUsageCost: Math.max(0, n) }))
+              }
+              min={0}
+              step={25}
+              suffix="$"
+            />
             <NumberField
               label="Implementation (one-time)"
-              value={implementation}
-              onChange={setImplementation}
+              value={costs.implementationCost}
+              onChange={(n) =>
+                setCosts((c) => ({ ...c, implementationCost: Math.max(0, n) }))
+              }
+              min={0}
+              step={500}
+              suffix="$"
             />
             <NumberField
               label="Amortize (months)"
-              value={amortizeMonths}
-              onChange={(v) => setAmortizeMonths(clamp(v, 1, 36))}
+              value={costs.implementationAmortMonths}
+              onChange={(n) =>
+                setCosts((c) => ({
+                  ...c,
+                  implementationAmortMonths: clamp(Math.round(n), 1, 36),
+                }))
+              }
+              min={1}
+              max={36}
+              step={1}
             />
           </div>
-        </section>
+        </div>
+      </div>
 
-        {/* Workflows */}
-        <section className="rounded-2xl border border-white/10 bg-white/5 p-5 space-y-4">
-          <div className="grid grid-cols-12 gap-3 text-xs uppercase tracking-wide text-muted-foreground">
-            <div className="col-span-12 sm:col-span-3">Workflow</div>
-            <div className="col-span-4 sm:col-span-1">Min/Task</div>
-            <div className="col-span-4 sm:col-span-2">Tasks/mo</div>
-            <div className="col-span-4 sm:col-span-2">People</div>
-            <div className="col-span-6 sm:col-span-2">Automation %</div>
-            <div className="col-span-6 sm:col-span-2">Hourly $</div>
+      {/* Workflows */}
+      <div className={`${SECTION_CARD} mt-5`}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            Workflows
+          </h2>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={downloadCSV}
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900"
+            >
+              Export CSV
+            </button>
+            <button onClick={downloadPDF} className={ORANGE_BTN}>
+              Download PDF
+            </button>
           </div>
+        </div>
 
-          <div className="space-y-5">
-            {rows.map((w, idx) => (
-              <div key={w.id} className="relative grid grid-cols-12 gap-3">
-                {/* Remove action floated above right on each row */}
+        <div className="mt-4 grid gap-3">
+          {rows.map((r, idx) => (
+            <div
+              key={r.id}
+              className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950"
+            >
+              {/* Top row: Name + Remove on the right */}
+              <div className="flex items-start justify-between gap-3">
+                <label className="flex-1">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                    Workflow name
+                  </span>
+                  <div className="relative mt-1">
+                    <input
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-orange-900/40"
+                      value={r.name}
+                      onChange={(e) => updateRow(r.id, { name: e.target.value })}
+                      list="workflow-suggestions"
+                      placeholder="Start typing (e.g., Lead qualification)…"
+                    />
+                    <datalist id="workflow-suggestions">
+                      {WORKFLOW_SUGGESTIONS.map((w) => (
+                        <option key={w} value={w} />
+                      ))}
+                    </datalist>
+                  </div>
+                </label>
+
                 <button
-                  onClick={() => removeWorkflow(w.id)}
-                  className="absolute right-0 -top-6 text-red-400 hover:text-red-300 text-sm"
+                  onClick={() => removeRow(r.id)}
+                  className="rounded-md border border-rose-300 bg-white px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:bg-slate-950 dark:hover:bg-rose-900/10"
                 >
-                  Remove
+                  REMOVE
                 </button>
+              </div>
 
-                {/* Workflow (searchable via datalist) */}
-                <div className="col-span-12 sm:col-span-3">
-                  <label className="sr-only">Workflow</label>
-                  <input
-                    list={`wf-${idx}`}
-                    value={w.name}
-                    onChange={(e) => setField("id", "name")(e.target.value)}
-                    placeholder="Type or choose a workflow"
-                    className="w-full rounded-xl border border-white/10 bg-neutral-900/40 px-3 py-2"
-                  />
-                  <datalist id={`wf-${idx}`}>
-                    {WORKFLOW_SUGGESTIONS.map((opt) => (
-                      <option key={opt} value={opt} />
-                    ))}
-                  </datalist>
-                </div>
+              {/* Inputs grid */}
+              <div className="mt-3 grid gap-3 md:grid-cols-6">
+                <NumberField
+                  label="Minutes / Task"
+                  value={r.minutesPerTask}
+                  onChange={(n) => updateRow(r.id, { minutesPerTask: Math.max(0, n) })}
+                  min={0}
+                  step={1}
+                />
+                <NumberField
+                  label="Tasks / Month"
+                  value={r.tasksPerMonth}
+                  onChange={(n) => updateRow(r.id, { tasksPerMonth: Math.max(0, Math.round(n)) })}
+                  min={0}
+                  step={10}
+                />
+                <NumberField
+                  label="People"
+                  value={r.people}
+                  onChange={(n) => updateRow(r.id, { people: clamp(Math.round(n), 0, 5000) })}
+                  min={0}
+                  step={1}
+                />
+                <NumberField
+                  label="Automation %"
+                  value={r.automationPct}
+                  onChange={(n) =>
+                    updateRow(r.id, { automationPct: clamp(Math.round(n), 0, 100) })
+                  }
+                  min={0}
+                  max={100}
+                  step={5}
+                  suffix="%"
+                />
+                <NumberField
+                  label="Hourly $"
+                  value={r.hourly}
+                  onChange={(n) => updateRow(r.id, { hourly: Math.max(0, n) })}
+                  min={0}
+                  step={5}
+                  suffix="$"
+                />
 
-                <div className="col-span-4 sm:col-span-1">
-                  <NumberField
-                    value={w.minPerTask}
-                    onChange={setField(w.id, "minPerTask")}
-                    ariaLabel="Minutes per Task"
-                  />
-                </div>
-                <div className="col-span-4 sm:col-span-2">
-                  <NumberField
-                    value={w.tasksPerMonth}
-                    onChange={setField(w.id, "tasksPerMonth")}
-                    ariaLabel="Tasks per Month"
-                  />
-                </div>
-                <div className="col-span-4 sm:col-span-2">
-                  <NumberField
-                    value={w.people}
-                    onChange={setField(w.id, "people")}
-                    ariaLabel="People"
-                  />
-                </div>
-                <div className="col-span-6 sm:col-span-2">
-                  <NumberField
-                    value={w.automationPct}
-                    onChange={(v) => setField(w.id, "automationPct")(clamp(v, 0, 100))}
-                    ariaLabel="Automation Percent"
-                  />
-                </div>
-                <div className="col-span-6 sm:col-span-2">
-                  <NumberField
-                    value={w.hourly}
-                    onChange={setField(w.id, "hourly")}
-                    ariaLabel="Hourly Rate"
-                  />
+                {/* Per-row summary */}
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-800 dark:bg-slate-900/40">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 dark:text-slate-400">
+                        Annual hours saved
+                      </span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {toNum1(
+                          ((r.minutesPerTask *
+                            r.tasksPerMonth *
+                            r.people *
+                            (adoptionPct / 100) *
+                            (r.automationPct / 100) *
+                            12) /
+                            60) as number
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 dark:text-slate-400">
+                        Labor savings
+                      </span>
+                      <span className="font-semibold text-emerald-600">
+                        {toCurrency(
+                          (((r.minutesPerTask *
+                            r.tasksPerMonth *
+                            r.people *
+                            (adoptionPct / 100) *
+                            (r.automationPct / 100) *
+                            12) /
+                            60) as number) * r.hourly,
+                          currency
+                        )}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
 
-          {/* Add workflow is now tight under the last row */}
+          {/* Add workflow button (tight to the list) */}
           <div>
-            <button
-              onClick={addWorkflow}
-              className="rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-4 py-2 text-sm"
-            >
+            <button onClick={addRow} className={ORANGE_BTN}>
               + Add workflow
             </button>
           </div>
-        </section>
+        </div>
+      </div>
 
-        {/* Calculation Summary (carrot) + Disclaimer */}
-        <details className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <summary className="cursor-pointer list-none">
-            <span className="inline-block rounded-full bg-white/10 px-2.5 py-0.5 text-xs mr-2 align-middle">
-              ▼
-            </span>
-            <span className="font-medium">Calculation Summary</span>
+      {/* Calculation Summary (accordion) */}
+      <div className={`${SECTION_CARD} mt-5`}>
+        <details>
+          <summary className="cursor-pointer select-none text-sm font-semibold text-slate-900 dark:text-slate-100">
+            Calculation Summary
           </summary>
-          <div className="mt-4 space-y-3 text-sm text-muted-foreground">
+          <div className="prose prose-slate dark:prose-invert mt-3 max-w-none text-sm">
             <p>
-              <strong>Hours saved / workflow</strong> = minutes per task × tasks/mo × people × automation% × adoption% × 12 months.
+              <strong>Benefit:</strong> A target portion of eligible work shifts from
+              humans to AI agents. Hours saved are estimated by multiplying{" "}
+              <em>minutes per task × tasks per month × 12 × people × adoption% × automation%</em>{" "}
+              and dividing by 60 to convert to hours. Productivity gains are valued
+              using the <em>loaded hourly cost</em>.
             </p>
             <p>
-              <strong>Annual $ saved</strong> = hours saved × hourly cost (loaded).
+              <strong>Program Costs:</strong> Your total annual cost is the sum of{" "}
+              platform + AI usage (both multiplied by 12) + implementation (amortized
+              over the selected months). <em>ROI = Net Benefit ÷ Total Costs</em>.
             </p>
             <p>
-              <strong>Total annual costs</strong> = (platform/mo + AI usage/mo) × 12 + (implementation ÷ amortize months).
-            </p>
-            <p>
-              <strong>Net benefit</strong> = annual labor savings – total annual costs. &nbsp;
-              <strong>ROI %</strong> = net benefit ÷ total annual costs.
-            </p>
-            <p>
-              Defaults mirror a typical ~100-employee SMB. Tune adoption and automation% to your reality.
+              Use this model to approximate savings for typical SMB scenarios (~100
+              employees). Adjust inputs to match your workload and pay scales.
             </p>
           </div>
         </details>
+      </div>
 
-        <p className="text-xs text-muted-foreground/90 leading-relaxed">
-          <strong>Disclaimer:</strong> This tool is for illustration only and should not be relied upon as a guarantee of
-          financial results. Actual outcomes vary with implementation practices, user adoption, configurations, business
-          processes, market conditions, and broader economic factors. Initial benefits may appear within weeks; larger
-          transitions typically roll in over time. Software license costs and third-party fees may apply depending on your
-          stack. All figures shown in USD unless noted otherwise.
+      {/* Disclaimer (always visible) */}
+      <div className="mt-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+        <p>
+          <strong>Disclaimer:</strong> The results of this tool are provided for
+          illustrative purposes only and should not be relied upon as a guarantee of
+          outcomes. Actual results vary based on implementation practices, user
+          adoption, configurations, business processes, market conditions, and other
+          external factors. Values shown are estimates in US dollars unless noted.
         </p>
       </div>
-    </main>
-  );
-}
 
-// ----- Reusable number input with "free typing" (backspace works) -----
-function NumberField({
-  label,
-  value,
-  onChange,
-  ariaLabel,
-}: {
-  label?: string;
-  value: number;
-  onChange: (v: number) => void;
-  ariaLabel?: string;
-}) {
-  const [text, setText] = useState<string>(String(value));
-
-  // keep internal text in sync if parent updates externally
-  React.useEffect(() => {
-    setText(String(value));
-  }, [value]);
-
-  return (
-    <div>
-      {label ? (
-        <label className="block text-xs uppercase tracking-wide text-muted-foreground mb-2">
-          {label}
-        </label>
-      ) : null}
-      <input
-        inputMode="decimal"
-        aria-label={ariaLabel}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={() => {
-          const n = Number(text.replace(/,/g, ""));
-          onChange(isFinite(n) ? n : 0);
-          setText(isFinite(n) ? String(n) : "0");
-        }}
-        className="w-full rounded-xl border border-white/10 bg-neutral-900/40 px-3 py-2"
-      />
+      {/* Bottom link back to site pages */}
+      <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
+        <Link
+          href="/"
+          className="text-slate-600 underline-offset-2 hover:underline dark:text-slate-300"
+        >
+          Home
+        </Link>
+        <span className="text-slate-400">•</span>
+        <Link
+          href="/privacy"
+          className="text-slate-600 underline-offset-2 hover:underline dark:text-slate-300"
+        >
+          Privacy
+        </Link>
+        <span className="text-slate-400">•</span>
+        <Link
+          href="/accessibility"
+          className="text-slate-600 underline-offset-2 hover:underline dark:text-slate-300"
+        >
+          Accessibility
+        </Link>
+      </div>
     </div>
   );
 }
-TSX
-
-# 5) Commit & push (still on fix/home-restore)
-git add app/roi-calculator/page.tsx package.json package-lock.json
-git commit -m "ROI: tighter layout (+Add under rows, Remove above), CSV+PDF export, Calculation Summary, disclaimer"
-git push origin fix/home-restore
 
