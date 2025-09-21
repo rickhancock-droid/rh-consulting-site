@@ -1,56 +1,71 @@
-import Image from "next/image"; // ← at top of app/page.tsx
+// app/page.tsx
+export const metadata = {
+  title: "RH Consulting | AI Agents & Automation",
+  description:
+    "AI agents, automation, and ROI-focused consulting for SMBs and growth teams. Book a call to see time and cost savings.",
+};
 
-function ServicesGrid() {
-  const cards = [
-    {
-      href: "/services/automation",
-      title: "Automation & Agents",
-      desc: "Agentic workflows that remove repetitive load and boost margins.",
-      img: "/images/services/automation.jpg", // put file in public/images/services/
-      alt: "Workflow automation dashboard",
-    },
-    {
-      href: "/services/ai-consulting",
-      title: "AI Consulting",
-      desc: "Strategy, roadmaps, and delivery for practical AI that ships.",
-      img: "/images/services/consulting.jpg",
-      alt: "Consulting session",
-    },
-    {
-      href: "/roi-calculator",
-      title: "ROI Calculator",
-      desc: "Estimate time and cost savings from AI agents in minutes.",
-      img: "/images/services/roi.jpg",
-      alt: "ROI analytics",
-    },
-  ];
+import Link from "next/link";
 
+export default function Home() {
   return (
-    <section className="mx-auto max-w-6xl px-4 py-14">
-      <h2 className="text-2xl font-semibold heading mb-6">What we do</h2>
-      <div className="grid md:grid-cols-3 gap-6">
-        {cards.map((c) => (
-          <a key={c.title} href={c.href} className="card overflow-hidden hover:shadow-card transition-shadow">
-            <div className="relative aspect-[16/9] bg-slate-100 dark:bg-slate-800">
-              <Image
-                src={c.img}
-                alt={c.alt}
-                fill     // responsive fill inside aspect box
-                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 33vw, 400px"
-                className="object-cover"
-                priority={c.title === "Automation & Agents"} // one priority image helps LCP
-              />
+    <main className="min-h-[70vh] bg-white dark:bg-slate-950">
+      <section className="mx-auto max-w-6xl px-4 py-12">
+        <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-3xl font-semibold text-slate-900 dark:text-slate-100">
+              RH Consulting — AI Agents that drive ROI
+            </h1>
+            <p className="mt-2 max-w-2xl text-slate-600 dark:text-slate-300">
+              We design, deploy, and tune AI agents to automate real work. Explore our ROI calculator,
+              read case studies, or book a working session.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <Link
+                href="/roi-calculator"
+                className="inline-flex items-center rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700"
+              >
+                Try the ROI Calculator
+              </Link>
+              <Link
+                href="/blog"
+                className="inline-flex items-center rounded-lg border border-slate-300 px-4 py-2 text-slate-800 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-900"
+              >
+                Read the Blog
+              </Link>
             </div>
-            <div className="p-5">
-              <h3 className="font-semibold mb-1">{c.title}</h3>
-              <p className="muted">{c.desc}</p>
+          </div>
+
+          <div className="mt-6 md:mt-0">
+            <div className="rounded-2xl border border-slate-200 p-5 shadow-sm dark:border-slate-800">
+              <div className="text-sm text-slate-500 dark:text-slate-400">Quick links</div>
+              <ul className="mt-3 space-y-2 text-slate-700 dark:text-slate-200">
+                <li>
+                  <Link href="/services/automation" className="hover:underline">
+                    Automation Services
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/case-studies" className="hover:underline">
+                    Case Studies
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/privacy" className="hover:underline">
+                    Privacy Policy
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/accessibility" className="hover:underline">
+                    Accessibility
+                  </Link>
+                </li>
+              </ul>
             </div>
-          </a>
-        ))}
-      </div>
-    </section>
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
-
-// In your default export page component, render <ServicesGrid /> where you want it.
 
