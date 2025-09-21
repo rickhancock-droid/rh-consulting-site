@@ -1,310 +1,416 @@
+// app/roi-calculator/page.tsx
 "use client";
 
-import * as React from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
 
-const SCHEDULER_URL = "https://calendly.com/rick-hancock-rhconsulting/30min";
-const HOURS_PER_FTE = 2080;
-
-const currencyFmt = (n: number, currency = "USD") =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 0 }).format(isFinite(n) ? n : 0);
-const num1 = (n: number) => new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(isFinite(n) ? n : 0);
-
-/** NumberField: lets you delete the first digit / paste freely.
- *  - Keeps a local string while typing
- *  - Only parses/clamps on blur (or Enter)
- *  - Allows temporarily empty input
- */
-type NumberFieldProps = {
-  value: number | undefined;
-  onChangeNumber: (value: number) => void;
-  min?: number;
-  max?: number;
-  allowDecimal?: boolean;
-  className?: string;
-  placeholder?: string;
-};
-function NumberField({
-  value,
-  onChangeNumber,
-  min = 0,
-  max = Number.MAX_SAFE_INTEGER,
-  allowDecimal = true,
-  className = "",
-  placeholder,
-}: NumberFieldProps) {
-  // keep raw text while typing
-  const [raw, setRaw] = React.useState<string>(value === 0 || value === undefined ? "" : String(value));
-
-  // only sync down when parent value actually changes (not on every render)
-  const prevValueRef = React.useRef<number | undefined>(value);
-  React.useEffect(() => {
-    if (prevValueRef.current !== value) {
-      setRaw(value === 0 || value === undefined ? "" : String(value));
-      prevValueRef.current = value;
-    }
-  }, [value]);
-
-  const parseClamp = (text: string) => {
-    const cleaned = (text ?? "").replace(allowDecimal ? /[^\d.]/g : /[^\d]/g, "");
-    if (cleaned === "" || cleaned === ".") return undefined; // treat as empty
-    const n = Number(cleaned);
-    if (!isFinite(n)) return min;
-    return Math.max(min, Math.min(n, max));
-  };
-
-  return (
-    <input
-      type="text"
-      inputMode={allowDecimal ? "decimal" : "numeric"}
-      pattern={allowDecimal ? "[0-9]*[.,]?[0-9]*" : "[0-9]*"}
-      className={`w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none
-                  focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20
-                  dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100 ${className}`}
-      value={raw}
-      placeholder={placeholder}
-      onChange={(e) => setRaw(e.target.value)}                     // free typing
-      onBlur={() => {
-        const parsed = parseClamp(raw);
-        onChangeNumber(parsed === undefined ? min : parsed);       // commit on blur
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.target as HTMLInputElement).blur(); // commit on Enter
-      }}
-    />
-  );
-}
-
-type TaskRow = {
+type Workflow = {
   id: string;
   name: string;
   minutesPerTask: number;
   tasksPerMonth: number;
   people: number;
-  automationRate: number;
+  automationPct: number; // 0..100
   hourlyCost: number;
 };
 
-type Costs = {
-  monthlyPlatformCost: number;
-  monthlyAIUsageCost: number;
-  implementationCost: number;
-  implementationAmortizationMonths: number;
+type ProgramCosts = {
+  platformPerMonth: number;
+  aiUsagePerMonth: number;
+  implementationOneTime: number;
+  amortizeMonths: number; // >= 1
+};
+
+const HOURS_PER_FTE = 2080;
+
+// ------- helpers (safe number typing) -------
+function parseNumLoose(v: string, fallback = 0) {
+  // allow "", "-", ".", etc while typing — treat as NaN then fallback
+  const n = Number(v.replace(/,/g, ""));
+  return Number.isFinite(n) ? n : fallback;
+}
+function clamp(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n));
+}
+const money = (n: number) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(Math.round(n));
+const num1 = (n: number) =>
+  new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(n);
+
+// ------- main -------
+export const metadata = {
+  title: "Agentic Automation ROI | RH Consulting",
+  description:
+    "Estimate time saved, FTE lift, labor savings, and ROI from AI agents across your workflows.",
 };
 
 export default function ROIPage() {
-  const [rows, setRows] = React.useState<TaskRow[]>([
-    { id: rid(), name: "Lead qualification", minutesPerTask: 6, tasksPerMonth: 450, people: 1, automationRate: 60, hourlyCost: 45 },
-    { id: rid(), name: "FAQ / info requests", minutesPerTask: 4, tasksPerMonth: 600, people: 1, automationRate: 55, hourlyCost: 40 },
+  const [rows, setRows] = useState<Workflow[]>([
+    {
+      id: crypto.randomUUID(),
+      name: "Lead qualification",
+      minutesPerTask: 6,
+      tasksPerMonth: 100,
+      people: 10,
+      automationPct: 60,
+      hourlyCost: 45,
+    },
+    {
+      id: crypto.randomUUID(),
+      name: "FAQ / info requests",
+      minutesPerTask: 4,
+      tasksPerMonth: 600,
+      people: 1,
+      automationPct: 55,
+      hourlyCost: 40,
+    },
   ]);
 
-  const [costs, setCosts] = React.useState<Costs>({
-    monthlyPlatformCost: 300,
-    monthlyAIUsageCost: 180,
-    implementationCost: 2500,
-    implementationAmortizationMonths: 12,
+  const [costs, setCosts] = useState<ProgramCosts>({
+    platformPerMonth: 300,
+    aiUsagePerMonth: 180,
+    implementationOneTime: 2500,
+    amortizeMonths: 12,
   });
 
-  const updateRowNum = (id: string, field: keyof TaskRow, val: number) =>
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: val } : r)));
-  const updateRowText = (id: string, field: keyof TaskRow, val: string) =>
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: val } : r)));
-  const addRow = () =>
-    setRows((p) => [...p, { id: rid(), name: "New workflow", minutesPerTask: 3, tasksPerMonth: 100, people: 1, automationRate: 50, hourlyCost: 40 }]);
-  const delRow = (id: string) => setRows((p) => p.filter((r) => r.id !== id));
-
-  const results = React.useMemo(() => {
-    const rowsCalc = rows.map((r) => {
-      const minutesSaved = r.minutesPerTask * (r.automationRate / 100);
-      const hoursSaved = (minutesSaved * r.tasksPerMonth) / 60;
-      const laborSavings = hoursSaved * r.hourlyCost;
-      return { ...r, hoursSaved, laborSavings };
+  // ------- calculations -------
+  const calc = useMemo(() => {
+    // hours saved per row = minutes * tasks/mo * automation% * 12 / 60
+    const rowHours = rows.map((r) => {
+      const h =
+        (r.minutesPerTask * r.tasksPerMonth * (r.automationPct / 100) * 12) /
+        60;
+      const $saved = h * r.hourlyCost;
+      return { id: r.id, hours: h, dollars: $saved };
     });
-    const totalHoursSaved = rowsCalc.reduce((a, b) => a + b.hoursSaved, 0);
-    const totalLaborSavings = rowsCalc.reduce((a, b) => a + b.laborSavings, 0);
-    const fteSaved = totalHoursSaved / HOURS_PER_FTE;
 
-    const annualPlatformCost = costs.monthlyPlatformCost * 12;
-    const annualAIUsageCost = costs.monthlyAIUsageCost * 12;
-    const annualizedImplementation =
-      (costs.implementationCost / Math.max(1, costs.implementationAmortizationMonths)) * 12;
-    const totalAnnualCosts = annualPlatformCost + annualAIUsageCost + annualizedImplementation;
+    const totalHours = rowHours.reduce((a, b) => a + b.hours, 0);
+    const fte = totalHours / HOURS_PER_FTE;
+    const laborSavings = rowHours.reduce((a, b) => a + b.dollars, 0);
 
-    const netBenefit = totalLaborSavings - totalAnnualCosts;
-    const roiPct = totalAnnualCosts > 0 ? (netBenefit / totalAnnualCosts) * 100 : Infinity;
-    const monthlyNet = totalLaborSavings / 12 - totalAnnualCosts / 12;
-    const paybackMonths = monthlyNet > 0 ? costs.implementationCost / monthlyNet : Infinity;
+    const annualPlatform = costs.platformPerMonth * 12;
+    const annualAI = costs.aiUsagePerMonth * 12;
+    const implAnnualized =
+      costs.amortizeMonths > 0
+        ? (costs.implementationOneTime * 12) / costs.amortizeMonths
+        : costs.implementationOneTime; // guard
+
+    const totalAnnualCosts = annualPlatform + annualAI + implAnnualized;
+    const net = laborSavings - totalAnnualCosts;
+    const roiPct = totalAnnualCosts > 0 ? (net / totalAnnualCosts) * 100 : 0;
 
     return {
-      rows: rowsCalc,
-      totalHoursSaved,
-      totalLaborSavings,
-      fteSaved,
-      annualPlatformCost,
-      annualAIUsageCost,
-      annualizedImplementation,
+      rowHours,
+      totalHours,
+      fte,
+      laborSavings,
+      annualPlatform,
+      annualAI,
+      implAnnualized,
       totalAnnualCosts,
-      netBenefit,
+      net,
       roiPct,
-      paybackMonths,
     };
   }, [rows, costs]);
 
-  const schedulerHref = React.useMemo(() => {
-    const q = new URLSearchParams({
-      hours_saved: String(Math.round(results.totalHoursSaved)),
-      fte_saved: num1(results.fteSaved),
-      savings: String(Math.round(results.totalLaborSavings)),
-      costs: String(Math.round(results.totalAnnualCosts)),
-      roi_pct: num1(results.roiPct),
-      payback_mo: isFinite(results.paybackMonths) ? num1(results.paybackMonths) : "N/A",
-      workflows: String(rows.length),
+  // ------- handlers -------
+  const updateRow = (id: string, patch: Partial<Workflow>) => {
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  };
+  const removeRow = (id: string) =>
+    setRows((rs) => (rs.length > 1 ? rs.filter((r) => r.id !== id) : rs));
+  const addRow = () =>
+    setRows((rs) => [
+      ...rs,
+      {
+        id: crypto.randomUUID(),
+        name: "New workflow",
+        minutesPerTask: 3,
+        tasksPerMonth: 200,
+        people: 1,
+        automationPct: 50,
+        hourlyCost: 40,
+      },
+    ]);
+
+  // ------- scheduler link with query params -------
+  const schedulerLink = (() => {
+    const params = new URLSearchParams({
+      hours: calc.totalHours.toFixed(1),
+      fte: calc.fte.toFixed(2),
+      savings: Math.round(calc.laborSavings).toString(),
+      costs: Math.round(calc.totalAnnualCosts).toString(),
+      roi: Math.round(calc.roiPct).toString(),
     });
-    return `${SCHEDULER_URL}?${q.toString()}`;
-  }, [results, rows.length]);
+    return `https://calendly.com/rick-hancock-rhconsulting/30min?${params.toString()}`;
+  })();
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
-      <header className="mb-6">
-        <h1 className="text-3xl font-semibold heading">Agentic Automation ROI</h1>
-        <p className="muted">Estimate time and cost savings from AI agents across your workflows.</p>
-      </header>
+      <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-100">
+        Agentic Automation ROI
+      </h1>
+      <p className="mt-2 text-slate-400">
+        Estimate time and cost savings from AI agents across your workflows.
+      </p>
 
-      <div className="grid md:grid-cols-4 gap-4 mb-8">
-        <SummaryCard label="Hours saved / yr" value={num1(results.totalHoursSaved)} />
-        <SummaryCard label="FTE equivalent" value={num1(results.fteSaved)} />
-        <SummaryCard label="Labor savings / yr" value={currencyFmt(results.totalLaborSavings)} />
-        <SummaryCard label="ROI" value={`${isFinite(results.roiPct) ? num1(results.roiPct) : "∞"}%`} />
+      {/* KPI cards */}
+      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KPI
+          label="Hours Saved / yr"
+          value={`${num1(calc.totalHours)}`}
+          hint={`≈ ${num1(calc.fte)} FTE`}
+        />
+        <KPI label="FTE Equivalent" value={num1(calc.fte)} />
+        <KPI label="Labor Savings / yr" value={money(calc.laborSavings)} />
+        <KPI
+          label="ROI"
+          value={`${Math.round(calc.roiPct)}%`}
+          tone={calc.net >= 0 ? "pos" : "neg"}
+        />
       </div>
 
-      <div className="mb-8">
-        <Link href={schedulerHref} className="inline-flex items-center justify-center rounded-lg bg-brand-primary px-5 py-3 text-white hover:bg-brand-primaryDark transition">
+      {/* CTA */}
+      <div className="mt-6">
+        <a
+          href={schedulerLink}
+          className="inline-flex items-center rounded-md bg-emerald-500 px-5 py-3 font-medium text-white shadow hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+        >
           Book a Call (passes your ROI numbers)
-        </Link>
+        </a>
       </div>
 
-      {/* Table */}
-      <section className="card p-4 mb-8 overflow-x-auto">
-        <div className="min-w-[920px]">
-          <div className="grid grid-cols-12 gap-3 px-2 pb-2 text-xs uppercase tracking-wide muted">
-            <div className="col-span-3">Workflow</div>
-            <div className="col-span-1 text-right">Min/Task</div>
-            <div className="col-span-2 text-right">Tasks / Mo</div>
-            <div className="col-span-1 text-right">People</div>
-            <div className="col-span-2 text-right">Automation %</div>
-            <div className="col-span-1 text-right">Hourly $</div>
-            <div className="col-span-2 text-right">Annual $ Saved</div>
-          </div>
+      {/* Workflows table */}
+      <section className="mt-8 rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+        <div className="grid grid-cols-12 gap-3 px-2 pb-2 text-xs uppercase tracking-wide text-slate-400">
+          <div className="col-span-3">Workflow</div>
+          <div className="col-span-1 text-center">Min/Task</div>
+          <div className="col-span-2 text-center">Tasks / Mo</div>
+          <div className="col-span-1 text-center">People</div>
+          <div className="col-span-2 text-center">Automation %</div>
+          <div className="col-span-1 text-center">Hourly $</div>
+          <div className="col-span-2 text-right">Annual $ Saved</div>
+        </div>
 
-          {results.rows.map((r) => (
-            <div key={r.id} className="grid grid-cols-12 gap-3 items-center px-2 py-2 border-t border-slate-200 dark:border-slate-800">
-              <div className="col-span-3">
+        <div className="space-y-3">
+          {rows.map((r, i) => {
+            const row = calc.rowHours.find((x) => x.id === r.id);
+            const annualSaved = row ? row.dollars : 0;
+
+            return (
+              <div
+                key={r.id}
+                className="grid grid-cols-12 gap-3 items-center rounded-lg bg-slate-900/60 px-2 py-2"
+              >
+                {/* name */}
                 <input
-                  type="text"
+                  className="col-span-3 rounded-md bg-slate-950/60 px-3 py-2 text-slate-100 border border-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   value={r.name}
-                  onChange={(e) => updateRowText(r.id, "name", e.target.value)}
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none
-                             focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20
-                             dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+                  onChange={(e) => updateRow(r.id, { name: e.target.value })}
                 />
-              </div>
-              <div className="col-span-1">
-                <NumberField value={r.minutesPerTask} onChangeNumber={(v) => updateRowNum(r.id, "minutesPerTask", v)} min={0} />
-              </div>
-              <div className="col-span-2">
-                <NumberField value={r.tasksPerMonth} onChangeNumber={(v) => updateRowNum(r.id, "tasksPerMonth", v)} min={0} allowDecimal={false} />
-              </div>
-              <div className="col-span-1">
-                <NumberField value={r.people} onChangeNumber={(v) => updateRowNum(r.id, "people", v)} min={0} allowDecimal={false} />
-              </div>
-              <div className="col-span-2">
-                <NumberField value={r.automationRate} onChangeNumber={(v) => updateRowNum(r.id, "automationRate", v)} min={0} max={100} />
-              </div>
-              <div className="col-span-1">
-                <NumberField value={r.hourlyCost} onChangeNumber={(v) => updateRowNum(r.id, "hourlyCost", v)} min={0} />
-              </div>
-              <div className="col-span-2 text-right font-medium">{currencyFmt(r.laborSavings)}</div>
-              <div className="col-span-12 flex justify-end">
-                <button onClick={() => delRow(r.id)} className="mt-2 text-xs text-red-600 hover:underline">Remove</button>
-              </div>
-            </div>
-          ))}
 
-          <div className="mt-3">
-            <button onClick={addRow} className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800">
-              + Add workflow
-            </button>
-          </div>
+                {/* minutesPerTask */}
+                <NumberField
+                  className="col-span-1"
+                  value={r.minutesPerTask}
+                  onChange={(val) =>
+                    updateRow(r.id, { minutesPerTask: clamp(val, 0, 480) })
+                  }
+                />
+
+                {/* tasksPerMonth */}
+                <NumberField
+                  className="col-span-2"
+                  value={r.tasksPerMonth}
+                  onChange={(val) =>
+                    updateRow(r.id, { tasksPerMonth: clamp(val, 0, 1_000_000) })
+                  }
+                />
+
+                {/* people */}
+                <NumberField
+                  className="col-span-1"
+                  value={r.people}
+                  onChange={(val) => updateRow(r.id, { people: clamp(val, 0, 100000) })}
+                />
+
+                {/* automationPct */}
+                <NumberField
+                  className="col-span-2"
+                  value={r.automationPct}
+                  onChange={(val) =>
+                    updateRow(r.id, { automationPct: clamp(val, 0, 100) })
+                  }
+                />
+
+                {/* hourlyCost */}
+                <NumberField
+                  className="col-span-1"
+                  value={r.hourlyCost}
+                  onChange={(val) =>
+                    updateRow(r.id, { hourlyCost: clamp(val, 0, 10_000) })
+                  }
+                />
+
+                {/* annual saved */}
+                <div className="col-span-2 text-right font-semibold text-slate-100">
+                  {money(annualSaved)}
+                </div>
+
+                {/* remove */}
+                <button
+                  onClick={() => removeRow(r.id)}
+                  className="col-span-12 sm:col-span-12 justify-self-end text-sm text-rose-400 hover:text-rose-300"
+                >
+                  Remove
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-4">
+          <button
+            onClick={addRow}
+            className="rounded-md border border-slate-700 px-3 py-2 text-slate-100 hover:bg-slate-800"
+          >
+            + Add workflow
+          </button>
         </div>
       </section>
 
-      {/* Costs */}
-      <section className="card p-4 mb-8">
-        <h2 className="font-semibold mb-3">Program costs</h2>
-        <div className="grid md:grid-cols-4 gap-4">
-          <LabeledInput label="Platform cost / mo">
-            <NumberField value={costs.monthlyPlatformCost} onChangeNumber={(v) => setCosts((c) => ({ ...c, monthlyPlatformCost: v }))} min={0} />
-          </LabeledInput>
-          <LabeledInput label="AI usage / mo">
-            <NumberField value={costs.monthlyAIUsageCost} onChangeNumber={(v) => setCosts((c) => ({ ...c, monthlyAIUsageCost: v }))} min={0} />
-          </LabeledInput>
-          <LabeledInput label="Implementation (one-time)">
-            <NumberField value={costs.implementationCost} onChangeNumber={(v) => setCosts((c) => ({ ...c, implementationCost: v }))} min={0} />
-          </LabeledInput>
-          <LabeledInput label="Amortize over (months)">
-            <NumberField value={costs.implementationAmortizationMonths} onChangeNumber={(v) => setCosts((c) => ({ ...c, implementationAmortizationMonths: Math.max(1, v) }))} min={1} allowDecimal={false} />
-          </LabeledInput>
-        </div>
-      </section>
-
-      {/* Bottom summary */}
-      <section className="card p-5 mb-10">
-        <h2 className="font-semibold mb-3">Your estimated impact</h2>
-        <div className="grid md:grid-cols-3 gap-6">
-          <Stat label="Annual labor savings" value={currencyFmt(results.totalLaborSavings)} />
-          <Stat label="Annual program costs" value={currencyFmt(results.totalAnnualCosts)} />
-          <Stat label="Net benefit (yr)" value={currencyFmt(results.netBenefit)} />
-          <Stat label="FTE equivalent" value={num1(results.fteSaved)} />
-          <Stat label="ROI" value={`${isFinite(results.roiPct) ? num1(results.roiPct) : "∞"}%`} />
-          <Stat label="Payback (months)" value={isFinite(results.paybackMonths) ? num1(results.paybackMonths) : "N/A"} />
-        </div>
-
-        <div className="mt-6">
-          <Link href={schedulerHref} className="inline-flex items-center justify-center rounded-lg bg-brand-primary px-5 py-3 text-white hover:bg-brand-primaryDark transition">
-            Book a Call (passes your ROI numbers)
-          </Link>
+      {/* Program costs */}
+      <section className="mt-8 rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+        <h3 className="mb-3 text-sm font-semibold text-slate-300">Program costs</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <LabeledNumber
+            label="Platform cost / mo"
+            value={costs.platformPerMonth}
+            onChange={(v) =>
+              setCosts((c) => ({ ...c, platformPerMonth: clamp(v, 0, 1_000_000) }))
+            }
+          />
+          <LabeledNumber
+            label="AI usage / mo"
+            value={costs.aiUsagePerMonth}
+            onChange={(v) =>
+              setCosts((c) => ({ ...c, aiUsagePerMonth: clamp(v, 0, 1_000_000) }))
+            }
+          />
+          <LabeledNumber
+            label="Implementation (one-time)"
+            value={costs.implementationOneTime}
+            onChange={(v) =>
+              setCosts((c) => ({
+                ...c,
+                implementationOneTime: clamp(v, 0, 10_000_000),
+              }))
+            }
+          />
+          <LabeledNumber
+            label="Amortize over (months)"
+            value={costs.amortizeMonths}
+            onChange={(v) => setCosts((c) => ({ ...c, amortizeMonths: clamp(v, 1, 120) }))}
+          />
         </div>
       </section>
     </div>
   );
 }
 
-function SummaryCard({ label, value }: { label: string; value: string }) {
+// ---------- UI bits ----------
+function KPI({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string;
+  value: string | number;
+  hint?: string;
+  tone?: "pos" | "neg";
+}) {
+  const toneClass =
+    tone === "pos"
+      ? "text-emerald-400"
+      : tone === "neg"
+      ? "text-rose-400"
+      : "text-slate-100";
   return (
-    <div className="card p-4">
-      <div className="muted text-xs uppercase mb-1">{label}</div>
-      <div className="text-xl font-semibold">{value}</div>
+    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <div className="text-xs uppercase tracking-wide text-slate-400">{label}</div>
+      <div className={`mt-2 text-2xl font-bold ${toneClass}`}>{value}</div>
+      {hint ? <div className="mt-1 text-xs text-slate-400">{hint}</div> : null}
     </div>
   );
 }
-function LabeledInput({ label, children }: { label: string; children: React.ReactNode }) {
+
+function NumberField({
+  value,
+  onChange,
+  className = "",
+}: {
+  value: number;
+  onChange: (val: number) => void;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState<string>(String(value));
+
+  // keep input in sync when external value changes (e.g., programmatic changes)
+  React.useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  return (
+    <input
+      inputMode="decimal"
+      className={
+        "rounded-md bg-slate-950/60 px-3 py-2 text-slate-100 border border-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 text-center " +
+        className
+      }
+      value={draft}
+      onChange={(e) => {
+        // Always update the draft so the user can backspace freely
+        const v = e.target.value;
+        setDraft(v);
+
+        // If it parses to a finite number, push it up immediately
+        const n = parseNumLoose(v, NaN);
+        if (Number.isFinite(n)) {
+          onChange(n as number);
+        }
+        // If it's empty or mid-typing (e.g., "-"), we just keep draft and wait.
+      }}
+      onBlur={() => {
+        // On blur, normalize: if not a number, snap back to the last good number
+        const n = parseNumLoose(draft, value);
+        setDraft(String(n));
+        onChange(n);
+      }}
+    />
+  );
+}
+
+function LabeledNumber({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
   return (
     <label className="block">
-      <span className="block text-sm mb-1">{label}</span>
-      {children}
+      <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">
+        {label}
+      </div>
+      <NumberField value={value} onChange={onChange} />
     </label>
   );
-}
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="p-4 rounded-lg border border-slate-200 dark:border-slate-800">
-      <div className="muted text-xs uppercase mb-1">{label}</div>
-      <div className="text-lg font-semibold">{value}</div>
-    </div>
-  );
-}
-function rid() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  return Math.random().toString(36).slice(2);
 }
 
