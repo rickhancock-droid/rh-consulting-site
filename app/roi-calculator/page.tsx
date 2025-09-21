@@ -53,7 +53,6 @@ function NumberField({
   // Free typing: allow empty string while editing; coerce on blur
   const [text, setText] = useState<string>(String(value));
   React.useEffect(() => {
-    // keep external updates in sync
     if (String(value) !== text) setText(String(value));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
@@ -65,7 +64,6 @@ function NumberField({
       placeholder={placeholder}
       onChange={(e) => {
         const t = e.target.value;
-        // allow empty / minus / dot while typing
         setText(t);
         const n = Number(t);
         if (!Number.isNaN(n)) onChange(n);
@@ -407,15 +405,16 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function edit<T extends object>(id: string, patch: Partial<Row>, set: React.Dispatch<React.SetStateAction<Row[]>>) {
+function edit(id: string, patch: Partial<Row>, set: React.Dispatch<React.SetStateAction<Row[]>>) {
   set((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 }
 function clamp(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, Number.isFinite(n) ? n : 0));
 }
-function cryptoRandom() {
-  // short random id
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return (crypto as any).randomUUID();
+function cryptoRandom(): string {
+  // Prefer Web Crypto randomUUID when available without using `any`
+  const g = globalThis as { crypto?: { randomUUID?: () => string } };
+  if (g && g.crypto && typeof g.crypto.randomUUID === "function") return g.crypto.randomUUID();
   return Math.random().toString(36).slice(2);
 }
 
