@@ -45,14 +45,13 @@ type Costs = {
   amortizeMonths: number;
 };
 
-/* ---------------- Reusable Number Field (free typing) ---------------- */
+/* ---------------- NumberField (free typing) ---------------- */
 function NumberField({
   value,
   onChange,
   className = "",
   min,
   max,
-  step,
   placeholder,
 }: {
   value: number;
@@ -60,7 +59,6 @@ function NumberField({
   className?: string;
   min?: number;
   max?: number;
-  step?: number;
   placeholder?: string;
 }) {
   const [raw, setRaw] = useState(String(value ?? ""));
@@ -76,7 +74,8 @@ function NumberField({
         const next = e.target.value;
         setRaw(next);
         const normalized = next.replace(/[^\d.\-]/g, "");
-        const parsed = normalized === "" || normalized === "-" ? NaN : Number(normalized);
+        const parsed =
+          normalized === "" || normalized === "-" ? NaN : Number(normalized);
         if (!Number.isNaN(parsed)) {
           let v = parsed;
           if (min != null) v = Math.max(min, v);
@@ -86,7 +85,7 @@ function NumberField({
       }}
       onBlur={() => setRaw(String(value ?? ""))}
       className={[
-        "w-full h-11 rounded-xl border",
+        "w-full h-10 rounded-xl border",
         "bg-white text-slate-900 border-slate-300",
         "dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700",
         "px-3 outline-none focus:ring-2 focus:ring-indigo-500/50",
@@ -97,7 +96,7 @@ function NumberField({
   );
 }
 
-/* ---------------- Default Data (100-employee SMB) ---------------- */
+/* ---------------- Defaults (100-employee SMB) ---------------- */
 const DEFAULT_ROWS: Row[] = [
   {
     id: "lead-qual",
@@ -127,7 +126,7 @@ const DEFAULT_COSTS: Costs = {
 };
 
 export default function ROICalculatorPage() {
-  const [adoption, setAdoption] = useState<number>(80); // %
+  const [adoption, setAdoption] = useState<number>(80);
   const [rows, setRows] = useState<Row[]>(DEFAULT_ROWS);
   const [costs, setCosts] = useState<Costs>(DEFAULT_COSTS);
   const [showExplainer, setShowExplainer] = useState<boolean>(true);
@@ -144,7 +143,6 @@ export default function ROICalculatorPage() {
         r.people *
         (r.automationPct / 100) *
         adoptionRate;
-
       const dollars = hours * r.hourlyCost;
       return { ...r, hoursSaved: hours, dollarsSaved: dollars };
     });
@@ -187,19 +185,19 @@ export default function ROICalculatorPage() {
     roi: Math.round(results.roiPct),
   });
 
-  /* --------- Styling helpers --------- */
+  /* --------- Styles --------- */
   const card = "rounded-2xl border bg-white text-slate-900 border-slate-200 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-800";
   const cardMuted = card + " text-sm";
-  const gridLabel = "text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400";
+  const gridLabel = "text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400";
 
   /* --------- Render --------- */
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8 space-y-8">
-      {/* Title + CTA (keep on one line on desktop) */}
-      <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+    <div className="mx-auto max-w-6xl px-4 py-6 space-y-6">
+      {/* Header row: title/desc + CTA */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="text-left">
-          <h1 className="text-3xl font-bold">AI ROI Calculators</h1>
-          <p className="text-slate-500 dark:text-slate-400">
+          <h1 className="text-2xl font-bold leading-tight">AI ROI Calculators</h1>
+          <p className="text-slate-500 dark:text-slate-400 text-sm">
             Estimate time &amp; cost savings. Defaults reflect a ~100-employee SMB—tweak for your org.
           </p>
         </div>
@@ -208,41 +206,44 @@ export default function ROICalculatorPage() {
           href={calendlyHref}
           target="_blank"
           rel="noopener noreferrer"
-          className="rounded-2xl bg-indigo-500 hover:bg-indigo-600 text-white px-5 py-3 shadow transition-colors"
+          className="rounded-2xl bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2.5 shadow transition-colors self-start md:self-auto"
         >
           Book a Call (passes your ROI)
         </Link>
       </div>
 
-      {/* Top stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className={cardMuted + " p-5"}>
+      {/* Stat cards — top-right shows Net benefit / ROI (single source of truth) */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className={cardMuted + " p-4"}>
           <div className={gridLabel}>Hours saved / yr</div>
-          <div className="text-2xl font-semibold mt-1">
+          <div className="text-xl font-semibold mt-0.5">
             {fmt1(results.totalHours)}
           </div>
-          <div className="text-slate-400 dark:text-slate-500">≈ {fmt1(results.fte)} FTE</div>
+          <div className="text-slate-400 dark:text-slate-500 text-xs">≈ {fmt1(results.fte)} FTE</div>
         </div>
-        <div className={cardMuted + " p-5"}>
+        <div className={cardMuted + " p-4"}>
           <div className={gridLabel}>FTE equivalent</div>
-          <div className="text-2xl font-semibold mt-1">{fmt1(results.fte)}</div>
-          <div className="text-slate-400 dark:text-slate-500">based on 2080 hrs/yr</div>
+          <div className="text-xl font-semibold mt-0.5">{fmt1(results.fte)}</div>
+          <div className="text-slate-400 dark:text-slate-500 text-xs">based on 2080 hrs/yr</div>
         </div>
-        <div className={cardMuted + " p-5"}>
+        <div className={cardMuted + " p-4"}>
           <div className={gridLabel}>Labor savings / yr</div>
-          <div className="text-2xl font-semibold mt-1">{fmtMoney(results.labor$)}</div>
+          <div className="text-xl font-semibold mt-0.5">{fmtMoney(results.labor$)}</div>
         </div>
-        <div className={cardMuted + " p-5"}>
-          <div className={gridLabel}>ROI</div>
-          <div className="text-2xl font-semibold mt-1 text-emerald-500">
-            {isFinite(results.roiPct) ? `${Math.round(results.roiPct)}%` : "—"}
+        <div className={cardMuted + " p-4"}>
+          <div className={gridLabel}>Net benefit / ROI</div>
+          <div className="text-xl font-semibold mt-0.5">
+            {fmtMoney(results.net)}{" "}
+            {isFinite(results.roiPct) && (
+              <span className="text-slate-500 dark:text-slate-400">({Math.round(results.roiPct)}%)</span>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Controls row (adoption + costs) */}
-      <div className={card + " p-5 space-y-5"}>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Controls row (compact) */}
+      <div className={card + " p-4 space-y-4"}>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           {/* Adoption slider */}
           <div>
             <div className={gridLabel}>Adoption Rate (%)</div>
@@ -256,7 +257,7 @@ export default function ROICalculatorPage() {
               className="w-full accent-indigo-500"
               aria-label="Adoption rate"
             />
-            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
               {adoption}% of eligible work
             </div>
           </div>
@@ -275,7 +276,7 @@ export default function ROICalculatorPage() {
             <NumberField
               value={costs.aiMonthly}
               onChange={(v) => setCosts((c) => ({ ...c, aiMonthly: v }))}
-              placeholder="150"
+              placeholder="180"
             />
           </div>
 
@@ -289,7 +290,7 @@ export default function ROICalculatorPage() {
               />
             </div>
             <div>
-              <div className={gridLabel}>Amortize over (months)</div>
+              <div className={gridLabel}>Amortize (months)</div>
               <NumberField
                 value={costs.amortizeMonths}
                 onChange={(v) =>
@@ -302,9 +303,9 @@ export default function ROICalculatorPage() {
         </div>
       </div>
 
-      {/* Workflows table */}
-      <div className={card + " p-5 space-y-4"}>
-        <div className="grid grid-cols-12 gap-3 text-xs font-medium text-slate-500 dark:text-slate-400">
+      {/* Workflows table (compact) */}
+      <div className={card + " p-4 space-y-3"}>
+        <div className="grid grid-cols-12 gap-2 text-[11px] font-medium text-slate-500 dark:text-slate-400">
           <div className="col-span-3">Workflow</div>
           <div>Min/Task</div>
           <div>Tasks / mo</div>
@@ -316,7 +317,7 @@ export default function ROICalculatorPage() {
         </div>
 
         {results.rows.map((r, idx) => (
-          <div key={r.id} className="grid grid-cols-12 gap-3 items-center">
+          <div key={r.id} className="grid grid-cols-12 gap-2 items-center">
             <input
               type="text"
               value={r.name}
@@ -328,7 +329,7 @@ export default function ROICalculatorPage() {
                 })
               }
               className={[
-                "col-span-3 h-11 rounded-xl border px-3",
+                "col-span-3 h-10 rounded-xl border px-3",
                 "bg-white text-slate-900 border-slate-300",
                 "dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700",
                 "outline-none focus:ring-2 focus:ring-indigo-500/50",
@@ -344,7 +345,7 @@ export default function ROICalculatorPage() {
                   return copy;
                 })
               }
-              placeholder="5"
+              placeholder="6"
             />
             <NumberField
               value={r.tasksPerMonth}
@@ -355,7 +356,7 @@ export default function ROICalculatorPage() {
                   return copy;
                 })
               }
-              placeholder="1200"
+              placeholder="100"
             />
             <NumberField
               value={r.people}
@@ -366,14 +367,17 @@ export default function ROICalculatorPage() {
                   return copy;
                 })
               }
-              placeholder="2"
+              placeholder="10"
             />
             <NumberField
               value={r.automationPct}
               onChange={(v) =>
                 setRows((rows) => {
                   const copy = [...rows];
-                  copy[idx] = { ...rows[idx], automationPct: Math.max(0, Math.min(100, v)) };
+                  copy[idx] = {
+                    ...rows[idx],
+                    automationPct: Math.max(0, Math.min(100, v)),
+                  };
                   return copy;
                 })
               }
@@ -388,7 +392,7 @@ export default function ROICalculatorPage() {
                   return copy;
                 })
               }
-              placeholder="40"
+              placeholder="45"
             />
 
             <div className="col-span-2 text-right text-slate-900 dark:text-slate-100 font-medium">
@@ -435,29 +439,33 @@ export default function ROICalculatorPage() {
         </div>
       </div>
 
-      {/* Bottom summary cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className={cardMuted + " p-5"}>
+      {/* Bottom summary — costs only (no duplicate ROI) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className={cardMuted + " p-4"}>
           <div className={gridLabel}>Annual hours saved</div>
-          <div className="text-2xl font-semibold mt-1">
+          <div className="text-xl font-semibold mt-0.5">
             {fmt1(results.totalHours)} hrs
           </div>
-          <div className="text-slate-400 dark:text-slate-500">≈ {fmt1(results.fte)} FTE</div>
+          <div className="text-slate-400 dark:text-slate-500 text-xs">
+            ≈ {fmt1(results.fte)} FTE
+          </div>
         </div>
-        <div className={cardMuted + " p-5"}>
+        <div className={cardMuted + " p-4"}>
           <div className={gridLabel}>Annual labor savings</div>
-          <div className="text-2xl font-semibold mt-1">{fmtMoney(results.labor$)}</div>
-          <div className="text-slate-400 dark:text-slate-500">before software costs</div>
+          <div className="text-xl font-semibold mt-0.5">
+            {fmtMoney(results.labor$)}
+          </div>
+          <div className="text-slate-400 dark:text-slate-500 text-xs">
+            before software costs
+          </div>
         </div>
-        <div className={cardMuted + " p-5"}>
-          <div className={gridLabel}>Net benefit / ROI</div>
-          <div className="text-2xl font-semibold mt-1">
-            {fmtMoney(results.net)}{" "}
-            {isFinite(results.roiPct) && (
-              <span className="text-slate-500 dark:text-slate-400">
-                ({Math.round(results.roiPct)}%)
-              </span>
-            )}
+        <div className={cardMuted + " p-4"}>
+          <div className={gridLabel}>Total annual costs</div>
+          <div className="text-xl font-semibold mt-0.5">
+            {fmtMoney(results.annualCosts)}
+          </div>
+          <div className="text-slate-400 dark:text-slate-500 text-xs">
+            platform + usage + build
           </div>
         </div>
       </div>
@@ -465,35 +473,42 @@ export default function ROICalculatorPage() {
       {/* Explainer */}
       <div className={card + " p-0 overflow-hidden"}>
         <button
-          className="w-full text-left px-5 py-4 flex items-center gap-2"
+          className="w-full text-left px-4 py-3 flex items-center gap-2"
           onClick={() => setShowExplainer((s) => !s)}
         >
-          <span className="text-slate-900 dark:text-slate-50">
+          <span className="text-slate-900 dark:text-slate-50 text-sm">
             {showExplainer ? "▾" : "▸"} How we calculate ROI
           </span>
         </button>
         {showExplainer && (
-          <div className="px-5 pb-5">
-            <div className="prose prose-slate dark:prose-invert max-w-none">
+          <div className="px-4 pb-4">
+            <div className="prose prose-slate dark:prose-invert max-w-none text-sm">
               <ul>
                 <li>
-                  <strong>Hours saved / workflow</strong> = minutes per task × tasks/mo × people × automation% × adoption% × 12 months.
+                  <strong>Hours saved / workflow</strong> = minutes per task ×
+                  tasks/mo × people × automation% × adoption% × 12 months.
                 </li>
                 <li>
-                  <strong>Annual $ saved</strong> = hours saved × hourly cost (loaded).
+                  <strong>Annual $ saved</strong> = hours saved × hourly cost
+                  (loaded).
                 </li>
                 <li>
-                  <strong>Total annual costs</strong> = (platform/mo + AI usage/mo) × 12 + (implementation ÷ amortize months).
+                  <strong>Total annual costs</strong> = (platform/mo + AI
+                  usage/mo) × 12 + (implementation ÷ amortize months).
                 </li>
                 <li>
-                  <strong>Net benefit</strong> = annual labor savings − total annual costs.
+                  <strong>Net benefit</strong> = annual labor savings − total
+                  annual costs.
                 </li>
                 <li>
                   <strong>ROI %</strong> = net benefit ÷ total annual costs.
                 </li>
               </ul>
               <p>
-                Defaults mirror a typical <em>~100-employee SMB</em>. Tune adoption and automation% to your reality. We can also model license consolidation or additional headcount lift on a live call.
+                Defaults mirror a typical <em>~100-employee SMB</em>. Tune
+                adoption and automation% to your reality. We can also model
+                license consolidation or additional headcount lift on a live
+                call.
               </p>
             </div>
           </div>
