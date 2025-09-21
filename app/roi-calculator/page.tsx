@@ -2,200 +2,135 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import Link from "next/link";
 
-/* ---------- Visual accent (tweak this to your brand orange) ---------- */
-const ACCENT_HEX = "#FF6A00"; // logo-like orange
+/* ----------------- constants & helpers ----------------- */
 const HOURS_PER_FTE = 2080;
-const SCHEDULER_URL =
-  "https://calendly.com/rick-hancock-rhconsulting/30min";
+const SCHEDULER = "https://calendly.com/rick-hancock-rhconsulting/30min";
 
-/* ---------- Helpers ---------- */
-const fmtMoney = (n: number, currency = "USD") =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(isFinite(n) ? n : 0);
-
-const fmt1 = (n: number) =>
-  new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(
-    isFinite(n) ? n : 0
+const money = (n: number, c: string = "USD") =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: c, maximumFractionDigits: 0 }).format(
+    Number.isFinite(n) ? n : 0,
   );
+const n1 = (n: number) =>
+  new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(Number.isFinite(n) ? n : 0);
 
-function buildURL(base: string, params: Record<string, string | number>) {
-  const qp = new URLSearchParams();
-  Object.entries(params).forEach(([k, v]) => qp.set(k, String(v)));
-  return `${base}?${qp.toString()}`;
-}
-
-/* ---------- Types ---------- */
+/* ----------------- types ----------------- */
 type Row = {
   id: string;
   name: string;
   minutesPerTask: number;
   tasksPerMonth: number;
   people: number;
-  automationPct: number;
+  automationPct: number; // 0-100
   hourlyCost: number;
 };
-
 type Costs = {
-  platformMonthly: number;
-  aiMonthly: number;
-  implementation: number;
+  platformMo: number;
+  aiMo: number;
+  implementationOneTime: number;
   amortizeMonths: number;
 };
+type CalcRow = Row & { hoursSaved: number; dollarsSaved: number };
 
-/* ---------- Workflow presets (inspired by common Salesforce-style calculators) ---------- */
-const WORKFLOW_PRESETS: Record<
-  string,
-  Omit<Row, "id" | "name"> & { label: string }
-> = {
-  lead_qual: {
-    label: "Lead qualification",
-    minutesPerTask: 6,
-    tasksPerMonth: 100,
-    people: 10,
-    automationPct: 60,
-    hourlyCost: 45,
-  },
-  faq: {
-    label: "FAQ / info requests",
-    minutesPerTask: 4,
-    tasksPerMonth: 600,
-    people: 1,
-    automationPct: 55,
-    hourlyCost: 40,
-  },
-  support_tickets: {
-    label: "Support tickets (tier-1)",
-    minutesPerTask: 7,
-    tasksPerMonth: 800,
-    people: 3,
-    automationPct: 60,
-    hourlyCost: 38,
-  },
-  crm_data: {
-    label: "CRM data entry",
-    minutesPerTask: 3,
-    tasksPerMonth: 1600,
-    people: 2,
-    automationPct: 70,
-    hourlyCost: 40,
-  },
-  ap_invoices: {
-    label: "AP / invoice processing",
-    minutesPerTask: 10,
-    tasksPerMonth: 400,
-    people: 2,
-    automationPct: 50,
-    hourlyCost: 42,
-  },
-};
-
-/* ---------- NumberField (free typing + backspace works) ---------- */
+/* ----------------- small UI bits ----------------- */
 function NumberField({
   value,
   onChange,
-  className = "",
-  min,
+  min = 0,
   max,
+  step = 1,
+  className = "",
   placeholder,
-  ariaLabel,
 }: {
   value: number;
-  onChange: (v: number) => void;
-  className?: string;
+  onChange: (n: number) => void;
   min?: number;
   max?: number;
+  step?: number;
+  className?: string;
   placeholder?: string;
-  ariaLabel?: string;
 }) {
-  const [raw, setRaw] = useState(String(value ?? ""));
-  React.useEffect(() => setRaw(String(value ?? "")), [value]);
+  // Free typing: allow empty string while editing; coerce on blur
+  const [text, setText] = useState<string>(String(value));
+  React.useEffect(() => {
+    // keep external updates in sync
+    if (String(value) !== text) setText(String(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
 
   return (
     <input
-      type="text"
       inputMode="decimal"
-      value={raw}
+      value={text}
       placeholder={placeholder}
-      aria-label={ariaLabel || placeholder}
       onChange={(e) => {
-        const next = e.target.value;
-        setRaw(next);
-        const normalized = next.replace(/[^\d.\-]/g, "");
-        const parsed =
-          normalized === "" || normalized === "-" ? NaN : Number(normalized);
-        if (!Number.isNaN(parsed)) {
-          let v = parsed;
-          if (min != null) v = Math.max(min, v);
-          if (max != null) v = Math.min(max, v);
-          onChange(v);
-        }
+        const t = e.target.value;
+        // allow empty / minus / dot while typing
+        setText(t);
+        const n = Number(t);
+        if (!Number.isNaN(n)) onChange(n);
       }}
-      onBlur={() => setRaw(String(value ?? ""))}
-      className={[
-        "w-full h-10 rounded-xl border px-3",
-        "bg-white text-slate-900 border-slate-300",
-        "dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700",
-        "outline-none focus:ring-2 focus:ring-indigo-500/50",
-        className,
-      ].join(" ")}
+      onBlur={() => {
+        let n = Number(text);
+        if (Number.isNaN(n)) n = value;
+        if (max !== undefined) n = Math.min(n, max);
+        if (min !== undefined) n = Math.max(n, min);
+        setText(String(n));
+        onChange(n);
+      }}
+      className={
+        "w-full rounded-xl border bg-white/60 px-3 py-2 text-sm text-slate-900 outline-none ring-1 ring-slate-200 transition placeholder:text-slate-400 " +
+        "focus:ring-2 focus:ring-violet-500 dark:bg-slate-900/40 dark:text-slate-100 dark:ring-slate-700 dark:focus:ring-violet-400 " +
+        className
+      }
+      min={min}
+      max={max}
+      step={step}
     />
   );
 }
 
-/* ---------- Defaults (100-employee SMB) ---------- */
-const DEFAULT_ROWS: Row[] = [
-  {
-    id: "lead-qual",
-    name: WORKFLOW_PRESETS.lead_qual.label,
-    minutesPerTask: WORKFLOW_PRESETS.lead_qual.minutesPerTask,
-    tasksPerMonth: WORKFLOW_PRESETS.lead_qual.tasksPerMonth,
-    people: WORKFLOW_PRESETS.lead_qual.people,
-    automationPct: WORKFLOW_PRESETS.lead_qual.automationPct,
-    hourlyCost: WORKFLOW_PRESETS.lead_qual.hourlyCost,
-  },
-  {
-    id: "faq",
-    name: WORKFLOW_PRESETS.faq.label,
-    minutesPerTask: WORKFLOW_PRESETS.faq.minutesPerTask,
-    tasksPerMonth: WORKFLOW_PRESETS.faq.tasksPerMonth,
-    people: WORKFLOW_PRESETS.faq.people,
-    automationPct: WORKFLOW_PRESETS.faq.automationPct,
-    hourlyCost: WORKFLOW_PRESETS.faq.hourlyCost,
-  },
+/* ----------------- workflow templates ----------------- */
+const WORKFLOW_TEMPLATES: Omit<Row, "id">[] = [
+  { name: "Lead qualification", minutesPerTask: 6, tasksPerMonth: 100, people: 10, automationPct: 60, hourlyCost: 45 },
+  { name: "FAQ / info requests", minutesPerTask: 4, tasksPerMonth: 600, people: 1, automationPct: 55, hourlyCost: 40 },
+  { name: "Inbound email triage", minutesPerTask: 5, tasksPerMonth: 1200, people: 2, automationPct: 65, hourlyCost: 40 },
+  { name: "CRM data entry", minutesPerTask: 3, tasksPerMonth: 1600, people: 2, automationPct: 70, hourlyCost: 40 },
 ];
 
-const DEFAULT_COSTS: Costs = {
-  platformMonthly: 300,
-  aiMonthly: 180,
-  implementation: 2500,
-  amortizeMonths: 12,
-};
+/* ----------------- page ----------------- */
+export default function ROIPage() {
+  // defaults mirror ~100-employee SMB
+  const [adoptionPct, setAdoptionPct] = useState<number>(80);
+  const [costs, setCosts] = useState<Costs>({
+    platformMo: 300,
+    aiMo: 180,
+    implementationOneTime: 2500,
+    amortizeMonths: 12,
+  });
 
-/* ====================================================================== */
+  const [rows, setRows] = useState<Row[]>([
+    { id: cryptoRandom(), ...WORKFLOW_TEMPLATES[0] },
+    { id: cryptoRandom(), ...WORKFLOW_TEMPLATES[1] },
+  ]);
 
-export default function ROICalculatorPage() {
-  const [adoption, setAdoption] = useState<number>(80);
-  const [rows, setRows] = useState<Row[]>(DEFAULT_ROWS);
-  const [costs, setCosts] = useState<Costs>(DEFAULT_COSTS);
-  const [showExplainer, setShowExplainer] = useState<boolean>(false); // collapsed by default
+  const addTemplate = (idx: number) => {
+    const tpl = WORKFLOW_TEMPLATES[idx];
+    if (!tpl) return;
+    setRows((r) => [{ id: cryptoRandom(), ...tpl }, ...r]);
+  };
 
-  /* ---------- Math ---------- */
   const results = useMemo(() => {
-    const adoptionRate = adoption / 100;
+    const adoption = adoptionPct / 100;
 
-    const rowsWithCalc = rows.map((r) => {
+    const rowsWithCalc: CalcRow[] = rows.map((r) => {
       const hours =
         (r.minutesPerTask / 60) *
         r.tasksPerMonth *
         12 *
         r.people *
         (r.automationPct / 100) *
-        adoptionRate;
+        adoption;
       const dollars = hours * r.hourlyCost;
       return { ...r, hoursSaved: hours, dollarsSaved: dollars };
     });
@@ -204,412 +139,283 @@ export default function ROICalculatorPage() {
     const fte = totalHours / HOURS_PER_FTE;
     const labor$ = rowsWithCalc.reduce((s, r) => s + r.dollarsSaved, 0);
 
-    const annualPlatform = costs.platformMonthly * 12;
-    const annualAI = costs.aiMonthly * 12;
-    const annualImpl =
-      costs.amortizeMonths > 0
-        ? costs.implementation / costs.amortizeMonths
-        : costs.implementation;
+    const annualPlatform = costs.platformMo * 12;
+    const annualAI = costs.aiMo * 12;
+    const annualizedImpl =
+      costs.amortizeMonths > 0 ? (costs.implementationOneTime / costs.amortizeMonths) * 12 : 0;
+    const annualCosts = annualPlatform + annualAI + annualizedImpl;
 
-    const annualCosts = annualPlatform + annualAI + annualImpl;
     const net = labor$ - annualCosts;
-    const roiPct = annualCosts > 0 ? (net / annualCosts) * 100 : Infinity;
+    const roiPct = annualCosts > 0 ? (net / annualCosts) * 100 : 0;
 
-    return {
-      rows: rowsWithCalc,
-      totalHours,
-      fte,
-      labor$,
-      annualCosts,
-      net,
-      roiPct,
-    };
-  }, [rows, adoption, costs]);
+    return { rows: rowsWithCalc, totalHours, fte, labor$, annualCosts, net, roiPct };
+  }, [rows, adoptionPct, costs]);
 
-  const calendlyHref = buildURL(SCHEDULER_URL, {
-    hours: Math.round(results.totalHours),
-    fte: results.fte.toFixed(1),
-    savings: Math.round(results.labor$),
-    costs: Math.round(results.annualCosts),
-    net: Math.round(results.net),
-    roi: Math.round(results.roiPct),
-  });
+  const calendlyHref = new URL(SCHEDULER);
+  calendlyHref.searchParams.set("hours", Math.round(results.totalHours).toString());
+  calendlyHref.searchParams.set("fte", n1(results.fte));
+  calendlyHref.searchParams.set("labor", Math.round(results.labor$).toString());
+  calendlyHref.searchParams.set("costs", Math.round(results.annualCosts).toString());
+  calendlyHref.searchParams.set("net", Math.round(results.net).toString());
+  calendlyHref.searchParams.set("roi", Math.round(results.roiPct).toString());
 
-  /* ---------- Reusable styles ---------- */
-  const card =
-    "rounded-2xl border bg-white text-slate-900 border-slate-200 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-800";
-  const cardMuted = card + " text-sm";
-  const gridLabel =
-    "text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400";
-
-  /* ---------- UI ---------- */
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 space-y-6">
-      {/* Title + CTA (single line on md+) */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div className="text-left">
-          <h1 className="text-2xl font-bold leading-tight">AI ROI Calculators</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm">
+    <div className="mx-auto max-w-6xl px-4 pb-14 pt-6">
+      {/* top bar: title/strap + action & KPI */}
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+            AI ROI Calculators
+          </h1>
+          <p className="mt-1 text-slate-600 dark:text-slate-400">
             Estimate time &amp; cost savings. Defaults reflect a ~100-employee SMB—tweak for your org.
           </p>
         </div>
-        <Link
-          href={calendlyHref}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="rounded-2xl bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2.5 shadow transition-colors self-start md:self-auto"
-        >
-          Book a Call (passes your ROI)
-        </Link>
-      </div>
 
-      {/* Dashboard stats with orange accent */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        {[
-          {
-            label: "Hours saved / yr",
-            main: `${fmt1(results.totalHours)}`,
-            sub: `≈ ${fmt1(results.fte)} FTE`,
-          },
-          { label: "FTE equivalent", main: fmt1(results.fte), sub: "based on 2080 hrs/yr" },
-          { label: "Labor savings / yr", main: fmtMoney(results.labor$) },
-          {
-            label: "Net benefit / ROI",
-            main: `${fmtMoney(results.net)}${
-              isFinite(results.roiPct) ? ` (${Math.round(results.roiPct)}%)` : ""
-            }`,
-          },
-        ].map((c, i) => (
-          <div
-            key={i}
-            className="rounded-2xl p-4 text-white"
-            style={{ background: ACCENT_HEX }}
+        {/* action + KPI card */}
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <a
+            href={calendlyHref.toString()}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
           >
-            <div className="text-[11px] uppercase tracking-wide opacity-90">
-              {c.label}
-            </div>
-            <div className="text-xl font-semibold mt-0.5">{c.main}</div>
-            {c.sub && <div className="opacity-90 text-xs">{c.sub}</div>}
-          </div>
-        ))}
-      </div>
-
-      {/* Controls (compact) */}
-      <div className={card + " p-4 space-y-4"}>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          {/* Adoption slider */}
-          <div>
-            <div className={gridLabel}>Adoption rate (%)</div>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={5}
-              value={adoption}
-              onChange={(e) => setAdoption(Number(e.target.value))}
-              className="w-full accent-indigo-500"
-              aria-label="Adoption rate"
-            />
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              {adoption}% of eligible work
-            </div>
-          </div>
-
-          <div>
-            <div className={gridLabel}>Platform cost / mo</div>
-            <NumberField
-              value={costs.platformMonthly}
-              onChange={(v) => setCosts((c) => ({ ...c, platformMonthly: v }))}
-              placeholder="300"
-            />
-          </div>
-
-          <div>
-            <div className={gridLabel}>AI usage / mo</div>
-            <NumberField
-              value={costs.aiMonthly}
-              onChange={(v) => setCosts((c) => ({ ...c, aiMonthly: v }))}
-              placeholder="180"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <div className={gridLabel}>Implementation (one-time)</div>
-              <NumberField
-                value={costs.implementation}
-                onChange={(v) => setCosts((c) => ({ ...c, implementation: v }))}
-                placeholder="2500"
-              />
-            </div>
-            <div>
-              <div className={gridLabel}>Amortize (months)</div>
-              <NumberField
-                value={costs.amortizeMonths}
-                onChange={(v) =>
-                  setCosts((c) => ({ ...c, amortizeMonths: Math.max(1, Math.round(v)) }))
-                }
-                placeholder="12"
-              />
-            </div>
+            Book a Call (passes your ROI)
+          </a>
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-right shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">ROI</div>
+            <div className="text-lg font-semibold text-emerald-500">{Math.round(results.roiPct)}%</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">{money(results.net)} net</div>
           </div>
         </div>
       </div>
 
-      {/* Workflows (with Preset dropdown) */}
-      <div className={card + " p-4 space-y-3"}>
-        <div className="grid grid-cols-12 gap-2 text-[11px] font-medium text-slate-500 dark:text-slate-400">
-          <div className="col-span-4">Workflow / Preset</div>
-          <div>Min/Task</div>
-          <div>Tasks / mo</div>
-          <div>People</div>
-          <div>Automation %</div>
-          <div>Hourly $</div>
+      {/* KPI row */}
+      <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KPI label="Hours saved / yr" value={`${n1(results.totalHours)} hrs`} sub={`≈ ${n1(results.fte)} FTE`} />
+        <KPI label="FTE equivalent" value={n1(results.fte)} sub={`based on ${HOURS_PER_FTE} hrs/yr`} />
+        <KPI label="Labor savings / yr" value={money(results.labor$)} />
+        <KPI label="ROI" value={`${Math.round(results.roiPct)}%`} sub={`${money(results.net)} net`} accent />
+      </div>
+
+      {/* program controls */}
+      <div className="mb-5 grid grid-cols-1 gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="col-span-1 lg:col-span-5">
+          <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Adoption rate (%)
+          </label>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={adoptionPct}
+            onChange={(e) => setAdoptionPct(Number(e.target.value))}
+            className="w-full accent-violet-500"
+          />
+          <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">{adoptionPct}% of eligible work</div>
+        </div>
+
+        <Field label="Platform cost / mo">
+          <NumberField value={costs.platformMo} onChange={(v) => setCosts({ ...costs, platformMo: v })} />
+        </Field>
+        <Field label="AI usage / mo">
+          <NumberField value={costs.aiMo} onChange={(v) => setCosts({ ...costs, aiMo: v })} />
+        </Field>
+        <Field label="Implementation (one-time)">
+          <NumberField
+            value={costs.implementationOneTime}
+            onChange={(v) => setCosts({ ...costs, implementationOneTime: v })}
+          />
+        </Field>
+        <Field label="Amortize (months)">
+          <NumberField value={costs.amortizeMonths} onChange={(v) => setCosts({ ...costs, amortizeMonths: v })} />
+        </Field>
+      </div>
+
+      {/* workflows */}
+      <div className="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        {/* add from template */}
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Add workflow:</label>
+          <select
+            className="rounded-lg border bg-white/60 px-3 py-2 text-sm text-slate-900 ring-1 ring-slate-200 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:ring-slate-700"
+            defaultValue=""
+            onChange={(e) => {
+              const idx = Number(e.target.value);
+              if (!Number.isNaN(idx)) addTemplate(idx);
+              e.currentTarget.value = "";
+            }}
+          >
+            <option value="" disabled>
+              Choose a template…
+            </option>
+            {WORKFLOW_TEMPLATES.map((t, i) => (
+              <option key={t.name + i} value={i}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* table header */}
+        <div className="grid grid-cols-12 gap-3 px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <div className="col-span-3">Workflow</div>
+          <div className="col-span-1">Min/Task</div>
+          <div className="col-span-2">Tasks / mo</div>
+          <div className="col-span-1">People</div>
+          <div className="col-span-2">Automation %</div>
+          <div className="col-span-1">Hourly $</div>
           <div className="col-span-2 text-right">Annual $ saved</div>
-          <div className="col-span-1"></div>
         </div>
 
-        {results.rows.map((r, idx) => (
-          <div key={r.id} className="grid grid-cols-12 gap-2 items-center">
-            <div className="col-span-4 grid grid-cols-12 gap-2">
-              {/* Name input */}
-              <input
-                type="text"
-                value={r.name}
-                onChange={(e) =>
-                  setRows((rows) => {
-                    const copy = [...rows];
-                    copy[idx] = { ...rows[idx], name: e.target.value };
-                    return copy;
-                  })
-                }
-                className={[
-                  "col-span-7 h-10 rounded-xl border px-3",
-                  "bg-white text-slate-900 border-slate-300",
-                  "dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700",
-                  "outline-none focus:ring-2 focus:ring-indigo-500/50",
-                ].join(" ")}
-              />
-
-              {/* Preset dropdown */}
-              <select
-                className={[
-                  "col-span-5 h-10 rounded-xl border px-2",
-                  "bg-white text-slate-900 border-slate-300",
-                  "dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700",
-                  "outline-none focus:ring-2 focus:ring-indigo-500/50",
-                ].join(" ")}
-                value=""
-                onChange={(e) => {
-                  const key = e.target.value as keyof typeof WORKFLOW_PRESETS;
-                  if (!key) return;
-                  const p = WORKFLOW_PRESETS[key];
-                  setRows((rows) => {
-                    const copy = [...rows];
-                    copy[idx] = {
-                      ...rows[idx],
-                      name: p.label,
-                      minutesPerTask: p.minutesPerTask,
-                      tasksPerMonth: p.tasksPerMonth,
-                      people: p.people,
-                      automationPct: p.automationPct,
-                      hourlyCost: p.hourlyCost,
-                    };
-                    return copy;
-                  });
-                }}
-              >
-                <option value="">Preset…</option>
-                {Object.entries(WORKFLOW_PRESETS).map(([key, p]) => (
-                  <option key={key} value={key}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
+        {/* rows */}
+        <div className="flex flex-col divide-y divide-slate-200 dark:divide-slate-800">
+          {results.rows.map((r: CalcRow) => (
+            <div key={r.id} className="grid grid-cols-12 items-center gap-3 py-3">
+              <div className="col-span-3">
+                <input
+                  value={r.name}
+                  onChange={(e) => edit(r.id, { name: e.target.value }, setRows)}
+                  className="w-full rounded-xl border bg-white/60 px-3 py-2 text-sm text-slate-900 ring-1 ring-slate-200 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:ring-slate-700"
+                />
+              </div>
+              <div className="col-span-1">
+                <NumberField
+                  value={r.minutesPerTask}
+                  onChange={(v) => edit(r.id, { minutesPerTask: clamp(v, 0, 1000) }, setRows)}
+                />
+              </div>
+              <div className="col-span-2">
+                <NumberField
+                  value={r.tasksPerMonth}
+                  onChange={(v) => edit(r.id, { tasksPerMonth: clamp(v, 0, 100000) }, setRows)}
+                />
+              </div>
+              <div className="col-span-1">
+                <NumberField value={r.people} onChange={(v) => edit(r.id, { people: clamp(v, 0, 100000) }, setRows)} />
+              </div>
+              <div className="col-span-2">
+                <NumberField
+                  value={r.automationPct}
+                  onChange={(v) => edit(r.id, { automationPct: clamp(v, 0, 100) }, setRows)}
+                />
+              </div>
+              <div className="col-span-1">
+                <NumberField
+                  value={r.hourlyCost}
+                  onChange={(v) => edit(r.id, { hourlyCost: clamp(v, 0, 10000) }, setRows)}
+                />
+              </div>
+              <div className="col-span-2 text-right text-slate-900 dark:text-slate-100 font-medium">
+                {money(r.dollarsSaved)}
+              </div>
+              <div className="col-span-12 mt-2 flex justify-end">
+                <button
+                  onClick={() => setRows((rs) => rs.filter((x) => x.id !== r.id))}
+                  className="text-sm text-rose-500 hover:text-rose-400"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
-
-            <NumberField
-              value={r.minutesPerTask}
-              onChange={(v) =>
-                setRows((rows) => {
-                  const copy = [...rows];
-                  copy[idx] = { ...rows[idx], minutesPerTask: v };
-                  return copy;
-                })
-              }
-              placeholder="6"
-              ariaLabel="Minutes per task"
-            />
-            <NumberField
-              value={r.tasksPerMonth}
-              onChange={(v) =>
-                setRows((rows) => {
-                  const copy = [...rows];
-                  copy[idx] = { ...rows[idx], tasksPerMonth: v };
-                  return copy;
-                })
-              }
-              placeholder="100"
-              ariaLabel="Tasks per month"
-            />
-            <NumberField
-              value={r.people}
-              onChange={(v) =>
-                setRows((rows) => {
-                  const copy = [...rows];
-                  copy[idx] = { ...rows[idx], people: v };
-                  return copy;
-                })
-              }
-              placeholder="10"
-              ariaLabel="People"
-            />
-            <NumberField
-              value={r.automationPct}
-              onChange={(v) =>
-                setRows((rows) => {
-                  const copy = [...rows];
-                  copy[idx] = {
-                    ...rows[idx],
-                    automationPct: Math.max(0, Math.min(100, v)),
-                  };
-                  return copy;
-                })
-              }
-              placeholder="60"
-              ariaLabel="Automation %"
-            />
-            <NumberField
-              value={r.hourlyCost}
-              onChange={(v) =>
-                setRows((rows) => {
-                  const copy = [...rows];
-                  copy[idx] = { ...rows[idx], hourlyCost: v };
-                  return copy;
-                })
-              }
-              placeholder="45"
-              ariaLabel="Hourly cost"
-            />
-
-            <div className="col-span-2 text-right text-slate-900 dark:text-slate-100 font-medium">
-              {fmtMoney((r as any).dollarsSaved)}
-            </div>
-
-            <div className="col-span-1 text-right">
-              <button
-                className="text-rose-500 hover:text-rose-400"
-                onClick={() =>
-                  setRows((rows) => rows.filter((x) => x.id !== r.id))
-                }
-              >
-                Remove
-              </button>
-            </div>
-          </div>
-        ))}
-
-        <div>
-          <button
-            className="rounded-xl px-3 py-2 bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700"
-            onClick={() =>
-              setRows((rows) => [
-                ...rows,
-                {
-                  id: Math.random().toString(36).slice(2),
-                  name: "New workflow",
-                  minutesPerTask: 5,
-                  tasksPerMonth: 100,
-                  people: 1,
-                  automationPct: 50,
-                  hourlyCost: 40,
-                },
-              ])
-            }
-          >
-            + Add workflow
-          </button>
+          ))}
         </div>
 
-        <div className="text-right text-sm text-slate-500 dark:text-slate-400">
-          Total annual costs: {fmtMoney(results.annualCosts)}
+        <div className="mt-3 text-right text-sm text-slate-500 dark:text-slate-400">
+          Total annual costs: {money(results.annualCosts)}
         </div>
       </div>
 
-      {/* Bottom summary — costs only (no duplicate ROI) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className={cardMuted + " p-4"}>
-          <div className={gridLabel}>Annual hours saved</div>
-          <div className="text-xl font-semibold mt-0.5">
-            {fmt1(results.totalHours)} hrs
-          </div>
-          <div className="text-slate-400 dark:text-slate-500 text-xs">
-            ≈ {fmt1(results.fte)} FTE
-          </div>
-        </div>
-        <div className={cardMuted + " p-4"}>
-          <div className={gridLabel}>Annual labor savings</div>
-          <div className="text-xl font-semibold mt-0.5">
-            {fmtMoney(results.labor$)}
-          </div>
-          <div className="text-slate-400 dark:text-slate-500 text-xs">
-            before software costs
-          </div>
-        </div>
-        <div className={cardMuted + " p-4"}>
-          <div className={gridLabel}>Total annual costs</div>
-          <div className="text-xl font-semibold mt-0.5">
-            {fmtMoney(results.annualCosts)}
-          </div>
-          <div className="text-slate-400 dark:text-slate-500 text-xs">
-            platform + usage + build
-          </div>
-        </div>
+      {/* bottom summary cards */}
+      <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KPI label="Annual hours saved" value={`${n1(results.totalHours)} hrs`} />
+        <KPI label="Annual labor savings" value={money(results.labor$)} sub="before software costs" />
+        <KPI label="Total annual costs" value={money(results.annualCosts)} sub="platform + usage + build" />
+        <KPI label="Net benefit / ROI" value={money(results.net)} sub={`${Math.round(results.roiPct)}% ROI`} accent />
       </div>
 
-      {/* Explainer (collapsed by default) */}
-      <div className={card + " p-0 overflow-hidden"}>
-        <button
-          className="w-full text-left px-4 py-3 flex items-center gap-2"
-          onClick={() => setShowExplainer((s) => !s)}
-        >
-          <span className="text-slate-900 dark:text-slate-50 text-sm">
-            {showExplainer ? "▾" : "▸"} How we calculate ROI
-          </span>
-        </button>
-        {showExplainer && (
-          <div className="px-4 pb-4">
-            <div className="prose prose-slate dark:prose-invert max-w-none text-sm">
-              <ul>
-                <li>
-                  <strong>Hours saved / workflow</strong> = minutes per task ×
-                  tasks/mo × people × automation% × adoption% × 12 months.
-                </li>
-                <li>
-                  <strong>Annual $ saved</strong> = hours saved × hourly cost
-                  (loaded).
-                </li>
-                <li>
-                  <strong>Total annual costs</strong> = (platform/mo + AI
-                  usage/mo) × 12 + (implementation ÷ amortize months).
-                </li>
-                <li>
-                  <strong>Net benefit</strong> = annual labor savings − total
-                  annual costs.
-                </li>
-                <li>
-                  <strong>ROI %</strong> = net benefit ÷ total annual costs.
-                </li>
-              </ul>
-              <p className="mt-2">
-                Presets mirror common SMB workflows (similar to Salesforce-style ROI tools).
-                Pick a preset then adjust fields to match your org.
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* explainer (closed by default) */}
+      <details className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <summary className="cursor-pointer text-base font-semibold text-slate-900 hover:opacity-90 dark:text-slate-100">
+          How we calculate ROI
+        </summary>
+        <ul className="mt-3 list-disc space-y-2 pl-5 text-slate-700 dark:text-slate-300">
+          <li>
+            <strong>Hours saved / workflow</strong> = minutes per task × tasks/mo × people × automation% × adoption% ×
+            12 months.
+          </li>
+          <li>
+            <strong>Annual $ saved</strong> = hours saved × hourly cost (loaded).
+          </li>
+          <li>
+            <strong>Total annual costs</strong> = (platform/mo + AI usage/mo) × 12 + (implementation ÷ amortize months)
+            × 12.
+          </li>
+          <li>
+            <strong>Net benefit</strong> = annual labor savings – total annual costs.
+          </li>
+          <li>
+            <strong>ROI %</strong> = net benefit ÷ total annual costs.
+          </li>
+        </ul>
+        <p className="mt-3 text-slate-600 dark:text-slate-400">
+          Defaults mirror a typical ~100-employee SMB. Tune adoption and automation% to your reality. We can also model
+          license consolidation or additional headcount lift on a live call.
+        </p>
+      </details>
     </div>
   );
+}
+
+/* ----------------- utility pieces ----------------- */
+function KPI({
+  label,
+  value,
+  sub,
+  accent,
+}: {
+  label: string;
+  value: React.ReactNode;
+  sub?: React.ReactNode;
+  accent?: boolean;
+}) {
+  return (
+    <div
+      className={
+        "rounded-2xl border p-4 shadow-sm " +
+        (accent
+          ? "border-amber-300 bg-amber-50/80 dark:border-amber-500/40 dark:bg-amber-500/5"
+          : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900")
+      }
+    >
+      <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
+      <div className="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">{value}</div>
+      {sub ? <div className="text-xs text-slate-500 dark:text-slate-400">{sub}</div> : null}
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+function edit<T extends object>(id: string, patch: Partial<Row>, set: React.Dispatch<React.SetStateAction<Row[]>>) {
+  set((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+}
+function clamp(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, Number.isFinite(n) ? n : 0));
+}
+function cryptoRandom() {
+  // short random id
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return (crypto as any).randomUUID();
+  return Math.random().toString(36).slice(2);
 }
 
