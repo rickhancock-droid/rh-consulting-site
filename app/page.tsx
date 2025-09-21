@@ -1,41 +1,56 @@
-import Link from "next/link";
+import Image from "next/image"; // ← at top of app/page.tsx
 
-export default function HomePage() {
+function ServicesGrid() {
+  const cards = [
+    {
+      href: "/services/automation",
+      title: "Automation & Agents",
+      desc: "Agentic workflows that remove repetitive load and boost margins.",
+      img: "/images/services/automation.jpg", // put file in public/images/services/
+      alt: "Workflow automation dashboard",
+    },
+    {
+      href: "/services/ai-consulting",
+      title: "AI Consulting",
+      desc: "Strategy, roadmaps, and delivery for practical AI that ships.",
+      img: "/images/services/consulting.jpg",
+      alt: "Consulting session",
+    },
+    {
+      href: "/roi-calculator",
+      title: "ROI Calculator",
+      desc: "Estimate time and cost savings from AI agents in minutes.",
+      img: "/images/services/roi.jpg",
+      alt: "ROI analytics",
+    },
+  ];
+
   return (
-    <>
-      <section className="mx-auto max-w-6xl px-4 py-12 md:py-16">
-        <div className="grid md:grid-cols-2 gap-8 items-center">
-          <div>
-            <h1 className="text-3xl md:text-5xl font-semibold tracking-tight text-brand-ink">
-              AI strategy that pays for itself
-            </h1>
-            <p className="mt-4 text-brand-muted">
-              Estimate hours saved, labor savings, ROI and payback with our AI ROI Calculator—then book a call with your results pre-filled.
-            </p>
-            <div className="mt-6 flex gap-3">
-              <Link href="/roi-calculator" className="inline-flex items-center px-5 py-3 rounded-2xl bg-brand-primary hover:bg-brand-primaryDark text-white shadow-sm">
-                Open the AI ROI Calculator
-              </Link>
-              <a href="#contact" className="inline-flex items-center px-5 py-3 rounded-2xl bg-brand-accent hover:bg-brand-accentDark text-white shadow-sm">
-                Contact
-              </a>
+    <section className="mx-auto max-w-6xl px-4 py-14">
+      <h2 className="text-2xl font-semibold heading mb-6">What we do</h2>
+      <div className="grid md:grid-cols-3 gap-6">
+        {cards.map((c) => (
+          <a key={c.title} href={c.href} className="card overflow-hidden hover:shadow-card transition-shadow">
+            <div className="relative aspect-[16/9] bg-slate-100 dark:bg-slate-800">
+              <Image
+                src={c.img}
+                alt={c.alt}
+                fill     // responsive fill inside aspect box
+                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 33vw, 400px"
+                className="object-cover"
+                priority={c.title === "Automation & Agents"} // one priority image helps LCP
+              />
             </div>
-          </div>
-          <div className="hidden md:block">
-            <img src="/hero.jpg" alt="RH Consulting — AI Automation" className="w-full rounded-2xl shadow-card" />
-          </div>
-        </div>
-      </section>
-
-      <section id="contact" className="mx-auto max-w-6xl px-4 pb-16">
-        <div className="rounded-2xl border bg-white p-6 shadow-card">
-          <h2 className="text-xl font-semibold text-brand-ink">Contact</h2>
-          <p className="mt-2 text-brand-muted">
-            Email <a className="text-brand-primary underline" href="mailto:hello@rhconsulting.ai">hello@rhconsulting.ai</a>
-          </p>
-        </div>
-      </section>
-    </>
+            <div className="p-5">
+              <h3 className="font-semibold mb-1">{c.title}</h3>
+              <p className="muted">{c.desc}</p>
+            </div>
+          </a>
+        ))}
+      </div>
+    </section>
   );
 }
+
+// In your default export page component, render <ServicesGrid /> where you want it.
 

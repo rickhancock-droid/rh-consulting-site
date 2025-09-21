@@ -16,5 +16,14 @@
                      dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300; }
   .field   { @apply h-10 px-3 rounded-xl border border-slate-300 bg-white text-slate-900
                      dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100; }
+
+/* Print-friendly case study PDFs */
+@media print {
+  header, nav, footer { display: none !important; }
+  main { margin: 0; padding: 0; }
+  .prose { color: #000; }
+  body { background: #fff !important; }
+}
+
 }
 
