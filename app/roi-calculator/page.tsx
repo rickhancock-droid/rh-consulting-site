@@ -85,7 +85,8 @@ type Workflow = {
 
 // ---------- main ----------
 export default function RoiCalculatorPage() {
-  // Program settings (SMB defaults)
+  // Program settings (SMB defaults)//
+  const [employees, setEmployees] = useState<number>(100);
   const [adoption, setAdoption] = useState<number>(80);
   const [platformAnnual, setPlatformAnnual] = useState<number>(12000);
   const [aiUsageAnnual, setAiUsageAnnual] = useState<number>(6000);
@@ -127,7 +128,7 @@ export default function RoiCalculatorPage() {
         (r.automationPct / 100) *
         (adoption / 100);
       const { id, ...rest } = r;
-      return { id: r.id, hours: hrs, dollars: hrs * r.hourly, ...r };
+      return { id, hours: hrs, dollars: hrs * r.hourly, ...rest };
     });
 
     const annualHours = wfHours.reduce((a, b) => a + b.hours, 0);
