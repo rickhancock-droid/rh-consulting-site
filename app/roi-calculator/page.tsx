@@ -1,7 +1,7 @@
 // app/roi-calculator/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
@@ -169,14 +169,13 @@ export default function RoiCalculatorPage() {
   async function handleDownloadPdf() {
     if (!rootRef.current) return;
 
-    // Capture the full calculator area (KPIs -> Summary -> Disclaimer)
+    // Capture the full calculator area (KPIs -> Program -> Workflows -> Summary -> Disclaimer)
     const canvas = await html2canvas(rootRef.current, {
       scale: 2,
-      backgroundColor: "#0B1220", // match dark background so it isn't transparent
+      backgroundColor: "#0B1220", // match dark background
       useCORS: true,
     });
 
-    const imgData = canvas.toDataURL("image/png");
     const pdf = new jsPDF({ unit: "pt", format: "a4" });
 
     // Header
@@ -189,7 +188,6 @@ export default function RoiCalculatorPage() {
     let cursorY = marginTop;
 
     if (logo) {
-      // place logo left
       pdf.addImage(logo, "PNG", marginX, cursorY, 120, 28);
     }
     pdf.setFont("helvetica", "bold");
@@ -209,8 +207,8 @@ export default function RoiCalculatorPage() {
     // Main capture image -> auto paginate
     const maxImgWidth = pageWidth - marginX * 2;
     const ratio = canvas.width / canvas.height;
-    let imgWidth = maxImgWidth;
-    let imgHeight = imgWidth / ratio;
+    const imgWidth = maxImgWidth;
+    const imgHeight = imgWidth / ratio;
 
     // If taller than one page, slice
     let remainingHeight = imgHeight;
@@ -352,14 +350,12 @@ export default function RoiCalculatorPage() {
           </div>
         </Card>
 
-        {/* Workflows (existing UI assumed) */}
-        {/* Your current workflows editor remains intact */}
-        {/* --- PLACEHOLDER: render your workflows table here --- */}
+        {/* Workflows */}
         <div className="mt-6">
           <Card>
             <Label>Workflows</Label>
             <div className="mt-4 grid grid-cols-1 gap-3">
-              {rows.map((r, idx) => (
+              {rows.map((r) => (
                 <div
                   key={r.id}
                   className="rounded-xl border border-white/10 bg-white/5 p-4"
