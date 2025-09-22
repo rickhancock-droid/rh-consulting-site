@@ -1,6 +1,9 @@
 "use client";
 
-"use client";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 
 // --- PDF text helper ---
 type Pdf = InstanceType<typeof jsPDF>;
@@ -17,8 +20,6 @@ function wrapText(pdf: Pdf, text: string, x: number, maxWidth: number, y: number
 }
 
 // app/roi-calculator/page.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 
 // ---------- constants ----------
 const LOGO_PATH = "/Original on transparent.png"; // your logo in /public
