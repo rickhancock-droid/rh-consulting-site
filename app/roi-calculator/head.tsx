@@ -1,13 +1,11 @@
-// app/roi-calculator/head.tsx
 export default function Head() {
   return (
     <>
-      <title>Agentic Automation ROI | RH Consulting</title>
+      <title>AI Agent ROI Calculator (Digital Labor) | RH Consulting</title>
       <meta
         name="description"
-        content="Estimate time saved, FTE lift, labor savings, and ROI from AI agents across your workflows."
+        content="Estimate time saved, labor savings, and ROI from AI agents (digital labor). Defaults reflect a 100-employee SMB; tweak for your org."
       />
     </>
   );
 }
-
