@@ -1,4 +1,6 @@
+"use client";
 
+"use client";
 
 // --- PDF text helper ---
 type Pdf = InstanceType<typeof jsPDF>;
@@ -15,8 +17,6 @@ function wrapText(pdf: Pdf, text: string, x: number, maxWidth: number, y: number
 }
 
 // app/roi-calculator/page.tsx
-"use client";
-
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
