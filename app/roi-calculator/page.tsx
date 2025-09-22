@@ -126,6 +126,7 @@ export default function RoiCalculatorPage() {
         12 *
         (r.automationPct / 100) *
         (adoption / 100);
+      const { id, ...rest } = r;
       return { id: r.id, hours: hrs, dollars: hrs * r.hourly, ...r };
     });
 
