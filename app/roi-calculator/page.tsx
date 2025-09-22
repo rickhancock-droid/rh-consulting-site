@@ -553,7 +553,7 @@ export default function RoiCalculatorPage() {
               />
               <NumField
                 className="sm:col-span-1"
-                label="Hourly $ (override)"
+                label="Hourly $"
                 value={r.hourly}
                 onChange={(v) => updateRow(r.id, { hourly: clamp(v, 0, 500) })}
                 min={0}
