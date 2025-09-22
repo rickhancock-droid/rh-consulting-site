@@ -1,3 +1,19 @@
+
+
+// --- PDF text helper ---
+type Pdf = InstanceType<typeof jsPDF>;
+/**
+ * Renders multi-line text within a max width and returns the next Y position.
+ */
+function wrapText(pdf: Pdf, text: string, x: number, maxWidth: number, y: number, lineHeight = 16) {
+  const lines = pdf.splitTextToSize(text, maxWidth);
+  for (const line of lines) {
+    pdf.text(line, x, y);
+    y += lineHeight;
+  }
+  return y;
+}
+
 // app/roi-calculator/page.tsx
 "use client";
 
