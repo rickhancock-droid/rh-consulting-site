@@ -150,7 +150,6 @@ export default function RoiCalculatorPage() {
       const pdf = new jsPDF({ unit: "pt", format: "a4" });
 
       const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
 
       // Fit the image to full page width
       const imgW = pageW - 64; // 32pt margins
@@ -514,7 +513,7 @@ function NumberField(props: {
         }}
         onBlur={(e) => {
           const raw = e.target.value.replace(/[^\d.]/g, "");
-          let num = raw === "" ? 0 : Number(raw);
+          const num = raw === "" ? 0 : Number(raw);
           if (!Number.isNaN(num)) onChange(Math.max(min, num));
         }}
         step={step}
