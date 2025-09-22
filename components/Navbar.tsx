@@ -33,6 +33,8 @@ export default function Navbar() {
             <Link
               href="/roi-calculator"
               className="text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+            <Link
+              href="/glossary" className="hover:opacity-80">Glossary</Link>
             >
               ROI Calculator
             </Link>
