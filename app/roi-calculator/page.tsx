@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -9,87 +9,135 @@ import html2canvas from "html2canvas";
 const CALENDLY_URL = "https://calendly.com/rick-hancock-rhconsulting/30min";
 const LOGO_PATH = "/Original on transparent.png"; // put your logo in /public
 
-// Presets for assumption modes
-const MODES = {
-  conservative: { label: "Conservative", adoptionPct: 60 },
-  typical: { label: "Typical", adoptionPct: 70 },
-  optimal: { label: "Optimal", adoptionPct: 85 },
-} as const;
-type ModeKey = keyof typeof MODES;
+{/* === Settings / Assumption Mode + Adoption + Costs === */}
+<section className="mt-8 rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+  {/* Presets row w/ slider embedded between Conservative & Typical */}
+  <div className="flex flex-wrap items-center gap-3 md:gap-4">
+    {/* Conservative pill */}
+    <button
+      type="button"
+      onClick={() => setMode("conservative")}
+      className={`px-3 py-1.5 rounded-full text-sm font-medium border ${
+        mode === "conservative"
+          ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-slate-900 dark:border-white"
+          : "bg-white text-slate-900 border-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600 dark:hover:bg-slate-700"
+      }`}
+    >
+      {MODES.conservative.label}
+    </button>
 
-// Workflow suggestions (searchable)
-const WORKFLOW_SUGGESTIONS = [
-  "FAQ / info requests",
-  "Lead qualification",
-  "Inbound email triage",
-  "CRM data entry",
-  "Order processing",
-  "Appointment scheduling",
-  "Ticket routing & tagging",
-  "Knowledge-base answer drafting",
-  "Invoice reconciliation",
-];
+    {/* Adoption slider (between Conservative and Typical) */}
+    <div className="flex items-center gap-3">
+      <input
+        type="range"
+        aria-label="Adoption (% of eligible work)"
+        min={0}
+        max={100}
+        step={5}
+        value={adoption}
+        onChange={(e) => setAdoption(parseInt(e.target.value, 10))}
+        className="w-44 md:w-56 accent-emerald-500"
+      />
+      <span className="text-sm text-slate-700 dark:text-slate-300">
+        Adoption: <span className="font-semibold">{adoption}%</span>
+      </span>
+    </div>
 
-// Case studies (1–3). Default PDF uses Case Study 1.
-const CASE_STUDIES = {
-  1: {
-    title: "Case Study 1 — Boosting Online Visibility",
-    client: "SMB B2B Services",
-    problem:
-      "Organic visibility stalled; manual content and metadata work consumed team time.",
-    solution:
-      "Deployed agentic automation for keyword clustering, on-page updates, and content briefs.",
-    outcome:
-      "+58% organic traffic in 90 days, +31% lead form conversions, ~45% faster content cycle.",
-    why:
-      "Shows how agentic automation compounds across content and ops to amplify ROI.",
-  },
-  2: {
-    title: "Case Study 2 — Data Refinery & Agentic AI",
-    client: "Mid-market SaaS",
-    problem:
-      "Fragmented data across CRM/CS tools; slow reporting; manual ops escalations.",
-    solution:
-      "Built a data refinery and agent workflows for enrichment, dedupe, and triage.",
-    outcome:
-      "Hours saved across ops; higher data quality; faster escalations; improved CX KPIs.",
-    why:
-      "Clean data + agents = durable productivity lift and lower downstream costs.",
-  },
-  3: {
-    title:
-      "Case Study 3 — Membership as a Service (Centennial Beer Hall)",
-    client: "Hospitality / Retail",
-    problem:
-      "Manual membership communications and offers slowed engagement; staff burden.",
-    solution:
-      "Agentic comms + offer targeting and recurring engagement automations.",
-    outcome:
-      "Higher member engagement; streamlined operations; measurable revenue uplift.",
-    why:
-      "Automating repetitive engagement workflows drives top-line and saves labor.",
-  },
-} as const;
+    {/* Typical pill */}
+    <button
+      type="button"
+      onClick={() => setMode("typical")}
+      className={`px-3 py-1.5 rounded-full text-sm font-medium border ${
+        mode === "typical"
+          ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-slate-900 dark:border-white"
+          : "bg-white text-slate-900 border-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600 dark:hover:bg-slate-700"
+      }`}
+    >
+      {MODES.typical.label}
+    </button>
 
-// Short glossary items for PDF appendix (expand on /glossary page)
-const PDF_GLOSSARY: { term: string; def: string }[] = [
-  {
-    term: "AI Agent (Digital Labor)",
-    def: "Software worker that performs bounded tasks via policies, tools, and data.",
-  },
-  {
-    term: "Automation %",
-    def: "Portion of a workflow that can be done by agents without human effort.",
-  },
-  {
-    term: "Adoption %",
-    def: "Portion of eligible work actually routed through agents over time.",
-  },
-  {
-    term: "FTE",
-    def: "Full-time equivalent (≈ 2080 hours/year). Used to translate hours to headcount.",
-  },
-];
+    {/* Optimal pill */}
+    <button
+      type="button"
+      onClick={() => setMode("optimal")}
+      className={`px-3 py-1.5 rounded-full text-sm font-medium border ${
+        mode === "optimal"
+          ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-slate-900 dark:border-white"
+          : "bg-white text-slate-900 border-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600 dark:hover:bg-slate-700"
+      }`}
+    >
+      {MODES.optimal.label}
+    </button>
+  </div>
+
+  {/* 5-input row (desktop = single line) */}
+  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 md:gap-4">
+    {/* Employees */}
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Employees</span>
+      <input
+        type="number"
+        min={1}
+        step={1}
+        value={employees}
+        onChange={(e) => setEmployees(Math.max(1, parseInt(e.target.value || "0", 10)))}
+        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      />
+    </label>
+
+    {/* Platform monthly */}
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Platform ($/mo)</span>
+      <input
+        type="number"
+        min={0}
+        step={10}
+        value={platformMonthly}
+        onChange={(e) => setPlatformMonthly(Math.max(0, parseInt(e.target.value || "0", 10)))}
+        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      />
+    </label>
+
+    {/* AI usage monthly */}
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">AI Usage ($/mo)</span>
+      <input
+        type="number"
+        min={0}
+        step={10}
+        value={aiUsageMonthly}
+        onChange={(e) => setAiUsageMonthly(Math.max(0, parseInt(e.target.value || "0", 10)))}
+        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      />
+    </label>
+
+    {/* Implementation (one-time) */}
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Implementation (one-time)</span>
+      <input
+        type="number"
+        min={0}
+        step={100}
+        value={implOneTime}
+        onChange={(e) => setImplOneTime(Math.max(0, parseInt(e.target.value || "0", 10)))}
+        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      />
+    </label>
+
+    {/* Amortization months */}
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Amortization (months)</span>
+      <input
+        type="number"
+        min={1}
+        step={1}
+        value={amortMonths}
+        onChange={(e) => setAmortMonths(Math.max(1, parseInt(e.target.value || "0", 10)))}
+        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      />
+    </label>
+  </div>
+</section>
 
 // ---------- types ----------
 type Workflow = {
@@ -116,45 +164,55 @@ const uid = () => Math.random().toString(36).slice(2, 8);
 
 // ---------- component ----------
 export default function RoiCalculatorPage() {
-  // Program-level inputs
-  const [mode, setMode] = useState<ModeKey>("typical");
-  const [adoption, setAdoption] = useState<number>(MODES[mode].adoptionPct);
-  const [employees, setEmployees] = useState<number>(100); // default SMB baseline
+  // --- Assumption mode + adoption (single source of truth) ---
+  type Mode = "conservative" | "typical" | "optimal";
+
+  const MODES: Record<Mode, { label: string; adoptionPct: number }> = {
+    conservative: { label: "Conservative", adoptionPct: 60 },
+    typical:      { label: "Typical",      adoptionPct: 70 },
+    optimal:      { label: "Optimal",      adoptionPct: 85 },
+  };
+
+  const [mode, setMode] = useState<Mode>("typical");           // default: Typical (70%)
+  const [adoption, setAdoption] = useState<number>(MODES.typical.adoptionPct);
+
+  // Keep adoption synced with selected mode
+  useEffect(() => {
+    setAdoption(MODES[mode].adoptionPct);
+  }, [mode]);
+
+  // --- program-level inputs (do NOT redeclare mode/adoption below) ---
+  const [employees, setEmployees] = useState<number>(100); // SMB baseline
   const [platformMonthly, setPlatformMonthly] = useState<number>(500);
   const [aiUsageMonthly, setAiUsageMonthly] = useState<number>(300);
   const [implOneTime, setImplOneTime] = useState<number>(3000);
   const [amortMonths, setAmortMonths] = useState<number>(12);
 
-  // Workflows
-  const [rows, setRows] = useState<Workflow[]>([
-    {
-      id: uid(),
-      name: "FAQ / info requests",
-      minPerTask: 3,
-      tasksPerMonth: 800,
-      people: 2,
-      automationPct: 60,
-      hourly: 45,
-    },
-    {
-      id: uid(),
-      name: "Lead qualification",
-      minPerTask: 6,
-      tasksPerMonth: 400,
-      people: 2,
-      automationPct: 55,
-      hourly: 45,
-    },
-  ]);
+// Workflows
+const [rows, setRows] = useState<Workflow[]>([
+  {
+    id: uid(),
+    name: "FAQ / info requests",
+    minPerTask: 3,
+    tasksPerMonth: 800,
+    people: 2,
+    automationPct: 60,
+    hourly: 45,
+  },
+  {
+    id: uid(),
+    name: "Lead qualification",
+    minPerTask: 6,
+    tasksPerMonth: 400,
+    people: 2,
+    automationPct: 55,
+    hourly: 45,
+  },
+]);
 
   // Searchable template dropdown state
   const [templateOpen, setTemplateOpen] = useState(false);
   const [templateQuery, setTemplateQuery] = useState("");
-
-  // Keep adoption synced with mode toggle
-  React.useEffect(() => {
-    setAdoption(MODES[mode].adoptionPct);
-  }, [mode]);
 
   // Derived calculations
   const {
@@ -399,216 +457,84 @@ export default function RoiCalculatorPage() {
         />
       </div>
 
-      {/* Assumptions + Adoption mode */}
-      <section className="mt-8 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
-        <div className="flex flex-wrap items-center gap-3">
-          <ModePill
-            label={MODES.conservative.label}
-            active={mode === "conservative"}
-            onClick={() => setMode("conservative")}
-          />
-          <ModePill
-            label={MODES.typical.label}
-            active={mode === "typical"}
-            onClick={() => setMode("typical")}
-          />
-          <ModePill
-            label={MODES.optimal.label}
-            active={mode === "optimal"}
-            onClick={() => setMode("optimal")}
-          />
-          <div className="ml-auto text-sm text-slate-600 dark:text-slate-300">
-            Adoption: <span className="font-semibold">{adoption}%</span>
-          </div>
-        </div>
+{/* Assumptions + Adoption mode */}
+<section className="mt-8 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+  {/* Preset pills + adoption slider (all on one row) */}
+  <div className="flex flex-wrap items-center gap-3">
+    <ModePill
+      label={MODES.conservative.label}
+      active={mode === "conservative"}
+      onClick={() => setMode("conservative")}
+    />
+    <ModePill
+      label={MODES.typical.label}
+      active={mode === "typical"}
+      onClick={() => setMode("typical")}
+    />
+    <ModePill
+      label={MODES.optimal.label}
+      active={mode === "optimal"}
+      onClick={() => setMode("optimal")}
+    />
 
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <NumField label="Employees" value={employees} onChange={(v) => setEmployees(v)} min={1} />
-          <NumField
-            label="Platform Cost (monthly)"
-            value={platformMonthly}
-            onChange={(v) => setPlatformMonthly(v)}
-            min={0}
-          />
-          <NumField
-            label="AI Usage (monthly)"
-            value={aiUsageMonthly}
-            onChange={(v) => setAiUsageMonthly(v)}
-            min={0}
-          />
-          <NumField
-            label="Implementation (one-time)"
-            value={implOneTime}
-            onChange={(v) => setImplOneTime(v)}
-            min={0}
-          />
-          <NumField
-            label="Amortization (months)"
-            value={amortMonths}
-            onChange={(v) => setAmortMonths(clamp(v, 1, 36))}
-            min={1}
-            max={36}
-          />
-        </div>
-      </section>
+    {/* Adoption slider sits at the far right of the row */}
+    <div className="ml-auto flex items-center gap-3">
+      <input
+        type="range"
+        aria-label="Adoption (% of eligible work)"
+        min={0}
+        max={100}
+        step={5}
+        value={adoption}
+        onChange={(e) => setAdoption(parseInt(e.target.value, 10))}
+        className="w-44 md:w-56 accent-emerald-500"
+      />
+      <div className="text-sm text-slate-600 dark:text-slate-300">
+        Adoption: <span className="font-semibold">{adoption}%</span>
+      </div>
+    </div>
+  </div>
 
-      {/* Workflows */}
-      <section className="mt-8 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Workflows</h2>
-          <div className="relative">
-            <button
-              onClick={() => setTemplateOpen((s) => !s)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800"
-            >
-              + Add from templates (search)
-            </button>
-            {templateOpen && (
-              <div
-                className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-slate-200 bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-900"
-                onMouseLeave={() => setTemplateOpen(false)}
-              >
-                <input
-                  autoFocus
-                  value={templateQuery}
-                  onChange={(e) => setTemplateQuery(e.target.value)}
-                  placeholder="Search templates…"
-                  className="mb-2 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-800"
-                />
-                <div className="max-h-56 overflow-y-auto">
-                  {filteredTemplates.length === 0 ? (
-                    <div className="p-2 text-sm text-slate-500">No matches</div>
-                  ) : (
-                    filteredTemplates.map((t) => (
-                      <button
-                        key={t}
-                        onClick={() => {
-                          addRow(t);
-                          setTemplateOpen(false);
-                          setTemplateQuery("");
-                        }}
-                        className="block w-full rounded-md px-2 py-1 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
-                      >
-                        {t}
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          {rows.map((r) => (
-            <div
-              key={r.id}
-              className="grid grid-cols-1 items-start gap-2 rounded-lg border border-slate-200 p-3 sm:grid-cols-12 dark:border-slate-700"
-            >
-              {/* Remove on the top-right to save vertical space */}
-              <div className="sm:col-span-12 -mt-1 mb-1 flex justify-end">
-                <button
-                  onClick={() => removeRow(r.id)}
-                  className="rounded-md bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/40"
-                >
-                  Remove
-                </button>
-              </div>
-
-              <TextField
-                className="sm:col-span-3"
-                label="Workflow"
-                value={r.name}
-                onChange={(v) => updateRow(r.id, { name: v })}
-              />
-              <NumField
-                className="sm:col-span-2"
-                label="Minutes per task"
-                value={r.minPerTask}
-                onChange={(v) => updateRow(r.id, { minPerTask: clamp(v, 0, 240) })}
-                min={0}
-                max={240}
-              />
-              <NumField
-                className="sm:col-span-2"
-                label="Tasks / month"
-                value={r.tasksPerMonth}
-                onChange={(v) => updateRow(r.id, { tasksPerMonth: clamp(v, 0, 100000) })}
-                min={0}
-              />
-              <NumField
-                className="sm:col-span-2"
-                label="People"
-                value={r.people}
-                onChange={(v) => updateRow(r.id, { people: clamp(v, 0, 10000) })}
-                min={0}
-              />
-              <NumField
-                className="sm:col-span-2"
-                label="Automation %"
-                value={r.automationPct}
-                onChange={(v) => updateRow(r.id, { automationPct: clamp(v, 0, 100) })}
-                min={0}
-                max={100}
-              />
-              <NumField
-                className="sm:col-span-1"
-                label="Hourly $"
-                value={r.hourly}
-                onChange={(v) => updateRow(r.id, { hourly: clamp(v, 0, 500) })}
-                min={0}
-              />
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Calculation Summary (accordion closed by default for space) */}
-      <details className="mt-8 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
-        <summary className="cursor-pointer select-none text-base font-semibold">
-          Calculation Summary
-        </summary>
-        <div className="pt-3 text-sm leading-6 text-slate-700 dark:text-slate-300">
-          <p className="mb-3">
-            <strong>Benefit:</strong> We estimate a portion of repetitive work shifts from humans
-            to AI agents, with adoption ramping over time. Hours saved are based on: employees ×
-            minutes per task × tasks per month × automation % × adoption % × 12 months. This
-            reflects productivity gains from reduced manual effort and faster completion.
-          </p>
-          <p className="mb-3">
-            <strong>Program Cost:</strong> Includes monthly platform costs, AI usage fees, and a
-            one-time implementation cost, amortized across the selected number of months.
-          </p>
-          <p>
-            <strong>Net Impact:</strong> Net benefit equals annual labor savings minus total annual
-            costs. ROI % is net benefit ÷ total annual costs.
-          </p>
-        </div>
-      </details>
-
-      {/* Disclaimer (always visible, smaller) */}
-      <p className="mt-6 text-xs leading-5 text-slate-500 dark:text-slate-400">
-        The results of this calculator are provided for illustrative purposes only to help you
-        explore potential benefits of AI automation in your organization. Actual outcomes will vary
-        and are not a guarantee or commitment of financial return. Results depend on factors
-        including but not limited to implementation practices, user adoption, workflow design and
-        configurations, organizational processes, market conditions, and external economic factors.
-        All calculations are presented in US dollars unless otherwise noted.
-      </p>
-    </main>
-  );
-}
+  {/* 5-input row (single line on wide screens) */}
+  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <NumField
+      label="Employees"
+      value={employees}
+      onChange={(v) => setEmployees(v)}
+      min={1}
+    />
+    <NumField
+      label="Platform Cost (monthly)"
+      value={platformMonthly}
+      onChange={(v) => setPlatformMonthly(v)}
+      min={0}
+      prefix="$"
+    />
+    <NumField
+      label="AI Usage (monthly)"
+      value={aiUsageMonthly}
+      onChange={(v) => setAiUsageMonthly(v)}
+      min={0}
+      prefix="$"
+    />
+    <NumField
+      label="Implementation (one-time)"
+      value={implOneTime}
+      onChange={(v) => setImplOneTime(v)}
+      min={0}
+      prefix="$"
+    />
+  </div>
+</section>
 
 // ---------- small UI bits ----------
-function DashCard({
-  label,
-  value,
-  accent,
-}: {
+type DashCardProps = {
   label: string;
   value: string;
   accent?: boolean;
-}) {
+};
+
+function DashCard({ label, value, accent }: DashCardProps) {
   return (
     <div
       className={
