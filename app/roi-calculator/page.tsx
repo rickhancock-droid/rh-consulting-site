@@ -21,7 +21,7 @@ const MODES: Record<Mode, { label: string; adoptionPct: number }> = {
   optimal: { label: "Optimal", adoptionPct: 85 },
 };
 
-// Six menu templates to choose from
+// 6 menu templates
 const WORKFLOW_SUGGESTIONS = [
   "Customer Experience Ops",
   "Automation Standardization",
@@ -156,7 +156,7 @@ export default function RoiCalculatorPage() {
     },
   ]);
 
-  /* === Template dropdown state (with one-click close) === */
+  /* === Template dropdown state (one-click close, ESC, outside click) === */
   const [templateOpen, setTemplateOpen] = useState(false);
   const [templateQuery, setTemplateQuery] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -185,7 +185,7 @@ export default function RoiCalculatorPage() {
     useMemo(() => {
       const wfHours = rows.map((r) => {
         const hrs =
-          (r.minPerTask / 60) * // mins→hrs
+          (r.minPerTask / 60) *
           r.tasksPerMonth *
           12 *
           (r.automationPct / 100) *
@@ -203,21 +203,8 @@ export default function RoiCalculatorPage() {
       const netBenefit = annualLaborSavings - annualCosts;
       const roiPct = annualCosts > 0 ? (netBenefit / annualCosts) * 100 : 0;
 
-      return {
-        annualHours,
-        annualLaborSavings,
-        annualCosts,
-        netBenefit,
-        roiPct,
-      };
-    }, [
-      rows,
-      adoption,
-      platformMonthly,
-      aiUsageMonthly,
-      implOneTime,
-      amortMonths,
-    ]);
+      return { annualHours, annualLaborSavings, annualCosts, netBenefit, roiPct };
+    }, [rows, adoption, platformMonthly, aiUsageMonthly, implOneTime, amortMonths]);
 
   /* === PDF refs & generator === */
   const pageRef = useRef<HTMLDivElement>(null);
@@ -226,13 +213,10 @@ export default function RoiCalculatorPage() {
     if (!pageRef.current) return;
 
     const isDark = document.documentElement.classList.contains("dark");
-
-    // Render the page area
     const canvas = await html2canvas(pageRef.current, {
       backgroundColor: isDark ? "#0b1220" : "#ffffff",
       scale: 2,
       useCORS: true,
-      logging: false,
     });
     const imgData = canvas.toDataURL("image/png");
 
@@ -242,7 +226,6 @@ export default function RoiCalculatorPage() {
 
     let y = 40;
 
-    // Header (logo + title)
     if (LOGO_PATH) {
       try {
         const logoResp = await fetch(LOGO_PATH, { mode: "cors" });
@@ -255,20 +238,13 @@ export default function RoiCalculatorPage() {
           });
           pdf.addImage(dataUrl, "PNG", 40, y, 120, 40);
         }
-      } catch {
-        /* ignore logo fetch errs */
-      }
+      } catch {}
     }
 
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(16);
-    pdf.text(
-      "AI Agent ROI Calculator (Digital Labor) — ROI Results",
-      40,
-      (y += 60)
-    );
+    pdf.text("AI Agent ROI Calculator (Digital Labor) — ROI Results", 40, (y += 60));
 
-    // Key metrics
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(11);
     const line1 =
@@ -278,7 +254,6 @@ export default function RoiCalculatorPage() {
       `Net Benefit: ${fmtMoney(netBenefit)}  |  ROI: ${fmtInt(roiPct)}%`;
     y = wrapText(pdf, line1, 40, pageW - 80, (y += 16), 16);
 
-    // Collapsible "Calculation Summary" on web — in PDF we include it directly
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(13);
     pdf.text("Calculation Summary", 40, (y += 24));
@@ -287,11 +262,10 @@ export default function RoiCalculatorPage() {
     const calcSummary =
       "Benefit: Portion of repetitive work shifts from humans to AI agents; adoption ramps over time. " +
       "Hours saved = employees × minutes/task × tasks/month × automation% × adoption% × 12 months.\n\n" +
-      "Program Cost: Monthly platform + AI usage + implementation amortized across selected months.\n\n" +
+      "Program Cost: Monthly platform + AI usage + implementation amortized.\n\n" +
       "Net Impact: Net benefit = annual labor savings − total annual costs; ROI% = net ÷ costs × 100.";
     y = wrapText(pdf, calcSummary, 40, pageW - 80, (y += 10), 16);
 
-    // Full-page image of the calculator
     const imgW = pageW - 80;
     const imgH = (canvas.height * imgW) / canvas.width;
     if (y + imgH > pageH - 80) {
@@ -301,12 +275,9 @@ export default function RoiCalculatorPage() {
     pdf.addImage(imgData, "PNG", 40, (y += 20), imgW, imgH);
     y += imgH;
 
-    // New page: Case Study 1 + Glossary + Disclaimer
     pdf.addPage();
     y = 40;
-
-    // Case Study 1 default
-    const cs = CASE_STUDIES[0];
+    const cs = CASE_STUDIES[0]; // default in PDF
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(13);
     pdf.text(cs.title, 40, y);
@@ -316,19 +287,11 @@ export default function RoiCalculatorPage() {
     y = wrapText(pdf, `Problem: ${cs.problem}`, 40, pageW - 80, (y += 14), 16);
     y = wrapText(pdf, `Solution: ${cs.solution}`, 40, pageW - 80, (y += 14), 16);
     y = wrapText(pdf, `Outcome: ${cs.outcome}`, 40, pageW - 80, (y += 14), 16);
-    y = wrapText(
-      pdf,
-      `Why it matters: ${cs.why}`,
-      40,
-      pageW - 80,
-      (y += 14),
-      16
-    );
+    y = wrapText(pdf, `Why it matters: ${cs.why}`, 40, pageW - 80, (y += 14), 16);
 
-    // Glossary
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(13);
-    pdf.text("Appendix — Glossary (selected terms)", 40, (y += 28));
+    pdf.text("Appendix — Glossary", 40, (y += 28));
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(11);
     for (const g of PDF_GLOSSARY) {
@@ -339,19 +302,6 @@ export default function RoiCalculatorPage() {
       }
     }
 
-    // Disclaimer (short)
-    const disclaimer =
-      "Disclaimer: The results of this calculator are provided for illustrative purposes only to help you explore potential benefits of AI automation in your organization. " +
-      "Actual outcomes will vary and are not a guarantee or commitment of financial return. Results depend on factors including but not limited to implementation practices, " +
-      "user adoption, workflow design and configurations, organizational processes, market conditions, and external economic factors. All calculations are presented in US dollars unless otherwise noted.";
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(12);
-    pdf.text("Disclaimer", 40, (y += 28));
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(10);
-    wrapText(pdf, disclaimer, 40, pageW - 80, (y += 12), 16);
-
-    // Save & notify
     pdf.save("ROI Results.pdf");
 
     try {
@@ -371,13 +321,39 @@ export default function RoiCalculatorPage() {
             typeof window !== "undefined" ? window.location.href : undefined,
         }),
       });
-    } catch {
-      // non-blocking
-    }
+    } catch {}
   }
 
-  /* ----------------------------------- UI ----------------------------------- */
+  /* === Build table columns WITHOUT stray whitespace (prevents hydration mismatch) === */
+  // Optional future toggle to link people to adoption*employees; leave false to keep rows editable.
+  const [linkPeople] = useState(false);
 
+  const cols = useMemo(
+    () =>
+      linkPeople
+        ? [
+            <col key="name" className="w-[32%]" />,
+            <col key="min" className="w-[9%]" />,
+            <col key="perperson" className="w-[14%]" />,
+            <col key="part" className="w-[12%]" />,
+            <col key="eff" className="w-[12%]" />,
+            <col key="auto" className="w-[12%]" />,
+            <col key="hour" className="w-[10%]" />,
+            <col key="act" className="w-[9%]" />,
+          ]
+        : [
+            <col key="name" className="w-[32%]" />,
+            <col key="min" className="w-[9%]" />,
+            <col key="tasks" className="w-[16%]" />,
+            <col key="people" className="w-[12%]" />,
+            <col key="auto" className="w-[12%]" />,
+            <col key="hour" className="w-[10%]" />,
+            <col key="act" className="w-[9%]" />,
+          ],
+    [linkPeople]
+  );
+
+  /* ----------------------------------- UI ----------------------------------- */
   return (
     <main ref={pageRef} className="mx-auto max-w-6xl px-4 py-8">
       {/* Top bar */}
@@ -448,7 +424,8 @@ export default function RoiCalculatorPage() {
           />
           <div className="ml-auto flex items-center gap-3">
             <label className="text-sm text-slate-700 dark:text-slate-300">
-              Automation adoption: <span className="font-semibold">{adoption}%</span>
+              <span className="font-medium">Automation adoption</span>:{" "}
+              <span className="font-semibold">{adoption}%</span>
             </label>
             <input
               type="range"
@@ -474,7 +451,7 @@ export default function RoiCalculatorPage() {
       </section>
 
       {/* Calculation Summary (closed by default) */}
-      <details className="mt-6 rounded-xl border border-slate-200 p-4 dark:border-slate-700" defaultValue={undefined}>
+      <details className="mt-6 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
         <summary className="cursor-pointer select-none text-sm font-medium">
           Calculation Summary
         </summary>
@@ -540,38 +517,63 @@ export default function RoiCalculatorPage() {
         </div>
 
         <div className="mt-4 overflow-x-auto">
-          <table className="min-w-full border-collapse text-sm">
+          {/* Force predictable widths so Name never truncates badly */}
+          <table className="min-w-full table-fixed border-collapse text-sm">
+            {/* IMPORTANT: no stray whitespace inside <colgroup> */}
+            <colgroup>{cols}</colgroup>
             <thead>
               <tr className="text-left">
                 <Th>Name</Th>
                 <Th>Min/Task</Th>
-                <Th>Tasks/Month</Th>
+                <Th>{linkPeople ? "Tasks/Person/Month" : "Tasks/Month"}</Th>
+                {linkPeople && <Th>Participants</Th>}
+                {linkPeople && <Th>Efficiency %</Th>}
                 <Th>People</Th>
-                <Th>Automation %</Th>
                 <Th>Hourly</Th>
                 <Th>Actions</Th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="border-t border-slate-200 dark:border-slate-700">
-                  <Td>
+                <tr
+                  key={r.id}
+                  className="border-t border-slate-200 dark:border-slate-700"
+                >
+                  <Td className="align-top">
                     <TextField value={r.name} onChange={(v) => updateRow(r.id, { name: v })} />
                   </Td>
                   <Td>
                     <NumField value={r.minPerTask} onChange={(v) => updateRow(r.id, { minPerTask: v })} min={0} />
                   </Td>
                   <Td>
-                    <NumField value={r.tasksPerMonth} onChange={(v) => updateRow(r.id, { tasksPerMonth: v })} min={0} />
+                    <NumField
+                      value={r.tasksPerMonth}
+                      onChange={(v) => updateRow(r.id, { tasksPerMonth: v })}
+                      min={0}
+                    />
                   </Td>
                   <Td>
-                    <NumField value={r.people} onChange={(v) => updateRow(r.id, { people: v })} min={0} />
+                    <NumField
+                      value={r.people}
+                      onChange={(v) => updateRow(r.id, { people: v })}
+                      min={0}
+                    />
                   </Td>
                   <Td>
-                    <NumField value={r.automationPct} onChange={(v) => updateRow(r.id, { automationPct: clamp(v, 0, 100) })} min={0} max={100} />
+                    <NumField
+                      value={r.automationPct}
+                      onChange={(v) => updateRow(r.id, { automationPct: clamp(v, 0, 100) })}
+                      min={0}
+                      max={100}
+                    />
                   </Td>
                   <Td>
-                    <NumField value={r.hourly} onChange={(v) => updateRow(r.id, { hourly: v })} min={0} prefix="$" />
+                    <NumField
+                      value={r.hourly}
+                      onChange={(v) => updateRow(r.id, { hourly: v })}
+                      min={0}
+                      prefix="$"
+                    />
                   </Td>
                   <Td>
                     <button
@@ -588,7 +590,7 @@ export default function RoiCalculatorPage() {
         </div>
       </section>
 
-      {/* Footer / SEO helper text for crawlers */}
+      {/* Footer / SEO helper text */}
       <footer className="mt-10 text-xs text-slate-500 dark:text-slate-400">
         Results are estimates; see disclaimer in the PDF. For definitions, visit{" "}
         <Link href="/glossary" className="underline">
@@ -756,8 +758,8 @@ function Th({ children }: { children: React.ReactNode }) {
     </th>
   );
 }
-function Td({ children }: { children: React.ReactNode }) {
-  return <td className="px-2 py-2">{children}</td>;
+function Td({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <td className={"px-2 py-2 " + className}>{children}</td>;
 }
 
 /* ------------------------------- PDF helper -------------------------------- */
