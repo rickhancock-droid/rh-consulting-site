@@ -21,7 +21,23 @@ const MODES: Record<Mode, { label: string; adoptionPct: number }> = {
   optimal: { label: "Optimal", adoptionPct: 85 },
 };
 
-// 6 menu templates
+// Map workflow names to stable keys so we can preset participation by mode
+const WF_KEYS: Record<string, "cx" | "std" | "inc" | "other"> = {
+  "Customer Experience Ops": "cx",
+  "Automation Standardization": "std",
+  "Incident & Resiliency Ops": "inc",
+};
+
+// Participation % presets by mode
+const PARTICIPATION_PRESETS: Record<
+  Mode,
+  Record<"cx" | "std" | "inc" | "other", number>
+> = {
+  conservative: { cx: 25, std: 20, inc: 10, other: 8 },
+  typical: { cx: 30, std: 25, inc: 15, other: 10 },
+  optimal: { cx: 40, std: 30, inc: 20, other: 12 },
+};
+
 const WORKFLOW_SUGGESTIONS = [
   "Customer Experience Ops",
   "Automation Standardization",
@@ -35,10 +51,11 @@ type Workflow = {
   id: string;
   name: string;
   minPerTask: number; // minutes
-  tasksPerMonth: number;
-  people: number;
+  tasksPerPerson: number; // per person per month
+  participationPct: number; // locked by mode presets
   automationPct: number; // 0–100
   hourly: number;
+  effectiveOverride?: number; // manual override of effective employees
 };
 
 const CASE_STUDIES = [
@@ -54,33 +71,8 @@ const CASE_STUDIES = [
       "58% organic traffic lift (90 days), 31% more lead form conversions, ~45% faster content-to-publish cycle; ~30–40% handle-time reduction in support queue.",
     why: "Compounds benefits across content, ops, and support—agentic automation multiplies ROI across workflows.",
   },
-  {
-    id: 2,
-    title: "Case Study 2 — Automation Standardization",
-    client: "B2B Services (mid-market)",
-    problem:
-      "Fragmented scripts and runbooks; inconsistent quality and rework increased labor cost.",
-    solution:
-      "Centralized automation library, templated tasks, and AI-assisted runbook execution.",
-    outcome:
-      "~35% cycle-time reduction; improved quality; fewer escalations; predictable throughput.",
-    why: "Standardization increases reuse and adoption, boosting time-to-value.",
-  },
-  {
-    id: 3,
-    title: "Case Study 3 — Incident & Resiliency Ops",
-    client: "Digital Retailer",
-    problem:
-      "Slow incident triage and coordination; high after-hours burden on on-call teams.",
-    solution:
-      "Automated incident classification, comms, and first-response tasks; AI postmortems.",
-    outcome:
-      "~25–40% MTTR reduction; better customer uptime; lower overtime and burnout.",
-    why: "Resilient, automated response protects revenue and experience.",
-  },
 ];
 
-// Short glossary added to PDF appendix + full page link in header
 const PDF_GLOSSARY = [
   { term: "ROI", def: "Return on Investment: (Net Benefit ÷ Total Costs) × 100." },
   {
@@ -108,6 +100,8 @@ const fmtInt = (n: number) =>
 const clamp = (v: number, min: number, max: number) =>
   Math.max(min, Math.min(max, v));
 
+const clamp01 = (v: number) => clamp(v, 0, 100);
+
 const uid = () => Math.random().toString(36).slice(2, 8);
 
 /* --------------------------------- PAGE ------------------------------------ */
@@ -125,14 +119,15 @@ export default function RoiCalculatorPage() {
   const [implOneTime, setImplOneTime] = useState<number>(3000);
   const [amortMonths, setAmortMonths] = useState<number>(12);
 
-  /* === Default rows (3) chosen for “Typical” ROI === */
+  /* === Default rows (3) chosen for “Typical” ROI ===
+     Note: tasksPerPerson chosen to preserve your baseline ROI when “Typical” (70%) */
   const [rows, setRows] = useState<Workflow[]>([
     {
       id: uid(),
       name: "Customer Experience Ops",
       minPerTask: 4, // mins
-      tasksPerMonth: 1200,
-      people: 3,
+      tasksPerPerson: 40,
+      participationPct: PARTICIPATION_PRESETS["typical"]["cx"],
       automationPct: 60,
       hourly: 45,
     },
@@ -140,8 +135,8 @@ export default function RoiCalculatorPage() {
       id: uid(),
       name: "Automation Standardization",
       minPerTask: 8,
-      tasksPerMonth: 600,
-      people: 2,
+      tasksPerPerson: 28,
+      participationPct: PARTICIPATION_PRESETS["typical"]["std"],
       automationPct: 55,
       hourly: 45,
     },
@@ -149,14 +144,14 @@ export default function RoiCalculatorPage() {
       id: uid(),
       name: "Incident & Resiliency Ops",
       minPerTask: 10,
-      tasksPerMonth: 300,
-      people: 2,
+      tasksPerPerson: 14,
+      participationPct: PARTICIPATION_PRESETS["typical"]["inc"],
       automationPct: 50,
       hourly: 45,
     },
   ]);
 
-  /* === Template dropdown state (one-click close, ESC, outside click) === */
+  /* === Template dropdown (one-click close) === */
   const [templateOpen, setTemplateOpen] = useState(false);
   const [templateQuery, setTemplateQuery] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -175,38 +170,94 @@ export default function RoiCalculatorPage() {
       document.removeEventListener("keydown", onEsc);
     };
   }, []);
-
   const filteredTemplates = WORKFLOW_SUGGESTIONS.filter((s) =>
     s.toLowerCase().includes(templateQuery.toLowerCase())
   );
 
-  /* === Derived calculations === */
-  const { annualHours, annualLaborSavings, annualCosts, netBenefit, roiPct } =
-    useMemo(() => {
-      const wfHours = rows.map((r) => {
-        const hrs =
-          (r.minPerTask / 60) *
-          r.tasksPerMonth *
-          12 *
-          (r.automationPct / 100) *
-          (adoption / 100);
-        return { hours: hrs, dollars: hrs * r.hourly };
-      });
+  /* === Lock participation % to the selected mode (public calculator) === */
+  useEffect(() => {
+    setRows((prev) =>
+      prev.map((r) => {
+        const key = WF_KEYS[r.name] ?? "other";
+        return { ...r, participationPct: PARTICIPATION_PRESETS[mode][key] };
+      })
+    );
+  }, [mode]);
 
-      const annualHours = wfHours.reduce((a, b) => a + b.hours, 0);
-      const annualLaborSavings = wfHours.reduce((a, b) => a + b.dollars, 0);
+  /* === Derived calculations ===
+     IMPORTANT: we include Adoption inside Effective Employees to avoid double counting.
+  */
+  const {
+    annualHours,
+    annualLaborSavings,
+    annualCosts,
+    netBenefit,
+    roiPct,
+    wfBreakdown,
+  } = useMemo(() => {
+    const wfBreakdown = rows.map((r) => {
+      const computedEff = Math.round(
+        employees * (r.participationPct / 100) * (adoption / 100)
+      );
+      const effectiveEmployees =
+        typeof r.effectiveOverride === "number"
+          ? Math.max(0, Math.trunc(r.effectiveOverride))
+          : computedEff;
 
-      const annualizedImpl = implOneTime / Math.max(1, amortMonths);
-      const annualCosts =
-        platformMonthly * 12 + aiUsageMonthly * 12 + annualizedImpl;
+      const hours =
+        (r.minPerTask / 60) *
+        r.tasksPerPerson *
+        effectiveEmployees *
+        12 *
+        (r.automationPct / 100);
 
-      const netBenefit = annualLaborSavings - annualCosts;
-      const roiPct = annualCosts > 0 ? (netBenefit / annualCosts) * 100 : 0;
+      const dollars = hours * r.hourly;
 
-      return { annualHours, annualLaborSavings, annualCosts, netBenefit, roiPct };
-    }, [rows, adoption, platformMonthly, aiUsageMonthly, implOneTime, amortMonths]);
+      return { id: r.id, name: r.name, hours, dollars, effectiveEmployees };
+    });
 
-  /* === PDF refs & generator === */
+    const annualHours = wfBreakdown.reduce((a, b) => a + b.hours, 0);
+    const annualLaborSavings = wfBreakdown.reduce((a, b) => a + b.dollars, 0);
+
+    const annualizedImpl = implOneTime / Math.max(1, amortMonths);
+    const annualCosts =
+      platformMonthly * 12 + aiUsageMonthly * 12 + annualizedImpl;
+
+    const netBenefit = annualLaborSavings - annualCosts;
+    const roiPct = annualCosts > 0 ? (netBenefit / annualCosts) * 100 : 0;
+
+    return {
+      annualHours,
+      annualLaborSavings,
+      annualCosts,
+      netBenefit,
+      roiPct,
+      wfBreakdown,
+    };
+  }, [
+    rows,
+    employees,
+    adoption,
+    platformMonthly,
+    aiUsageMonthly,
+    implOneTime,
+    amortMonths,
+  ]);
+
+  /* === Adopted headcount back-propagates to the slider (sum of auto rows) === */
+  const autoEffectiveSum = useMemo(() => {
+    // Sum only rows that are NOT overridden
+    const totalAuto = rows.reduce((sum, r) => {
+      if (typeof r.effectiveOverride === "number") return sum;
+      const eff = Math.round(
+        employees * (r.participationPct / 100) * (adoption / 100)
+      );
+      return sum + eff;
+    }, 0);
+    return totalAuto;
+  }, [rows, employees, adoption]);
+
+  /* ======= PDF ======= */
   const pageRef = useRef<HTMLDivElement>(null);
 
   async function handlePdf() {
@@ -217,6 +268,7 @@ export default function RoiCalculatorPage() {
       backgroundColor: isDark ? "#0b1220" : "#ffffff",
       scale: 2,
       useCORS: true,
+      logging: false,
     });
     const imgData = canvas.toDataURL("image/png");
 
@@ -226,6 +278,7 @@ export default function RoiCalculatorPage() {
 
     let y = 40;
 
+    // Header (logo + title)
     if (LOGO_PATH) {
       try {
         const logoResp = await fetch(LOGO_PATH, { mode: "cors" });
@@ -238,13 +291,20 @@ export default function RoiCalculatorPage() {
           });
           pdf.addImage(dataUrl, "PNG", 40, y, 120, 40);
         }
-      } catch {}
+      } catch {
+        /* ignore logo fetch errs */
+      }
     }
 
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(16);
-    pdf.text("AI Agent ROI Calculator (Digital Labor) — ROI Results", 40, (y += 60));
+    pdf.text(
+      "AI Agent ROI Calculator (Digital Labor) — ROI Results",
+      40,
+      (y += 60)
+    );
 
+    // Key metrics
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(11);
     const line1 =
@@ -254,6 +314,7 @@ export default function RoiCalculatorPage() {
       `Net Benefit: ${fmtMoney(netBenefit)}  |  ROI: ${fmtInt(roiPct)}%`;
     y = wrapText(pdf, line1, 40, pageW - 80, (y += 16), 16);
 
+    // Calculation Summary
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(13);
     pdf.text("Calculation Summary", 40, (y += 24));
@@ -261,11 +322,13 @@ export default function RoiCalculatorPage() {
     pdf.setFontSize(11);
     const calcSummary =
       "Benefit: Portion of repetitive work shifts from humans to AI agents; adoption ramps over time. " +
-      "Hours saved = employees × minutes/task × tasks/month × automation% × adoption% × 12 months.\n\n" +
-      "Program Cost: Monthly platform + AI usage + implementation amortized.\n\n" +
+      "Hours saved = minutes/task ÷ 60 × tasks/person/month × effective employees × 12 × automation%.\n" +
+      "Effective employees = round(employees × participation% × adoption%).\n\n" +
+      "Program Cost: Monthly platform + AI usage + implementation amortized across selected months.\n\n" +
       "Net Impact: Net benefit = annual labor savings − total annual costs; ROI% = net ÷ costs × 100.";
     y = wrapText(pdf, calcSummary, 40, pageW - 80, (y += 10), 16);
 
+    // Full-page image of the calculator
     const imgW = pageW - 80;
     const imgH = (canvas.height * imgW) / canvas.width;
     if (y + imgH > pageH - 80) {
@@ -275,9 +338,11 @@ export default function RoiCalculatorPage() {
     pdf.addImage(imgData, "PNG", 40, (y += 20), imgW, imgH);
     y += imgH;
 
+    // New page: Case Study 1 + Glossary + Disclaimer
     pdf.addPage();
     y = 40;
-    const cs = CASE_STUDIES[0]; // default in PDF
+
+    const cs = CASE_STUDIES[0];
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(13);
     pdf.text(cs.title, 40, y);
@@ -287,11 +352,19 @@ export default function RoiCalculatorPage() {
     y = wrapText(pdf, `Problem: ${cs.problem}`, 40, pageW - 80, (y += 14), 16);
     y = wrapText(pdf, `Solution: ${cs.solution}`, 40, pageW - 80, (y += 14), 16);
     y = wrapText(pdf, `Outcome: ${cs.outcome}`, 40, pageW - 80, (y += 14), 16);
-    y = wrapText(pdf, `Why it matters: ${cs.why}`, 40, pageW - 80, (y += 14), 16);
+    y = wrapText(
+      pdf,
+      `Why it matters: ${cs.why}`,
+      40,
+      pageW - 80,
+      (y += 14),
+      16
+    );
 
+    // Glossary
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(13);
-    pdf.text("Appendix — Glossary", 40, (y += 28));
+    pdf.text("Appendix — Glossary (selected terms)", 40, (y += 28));
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(11);
     for (const g of PDF_GLOSSARY) {
@@ -302,6 +375,19 @@ export default function RoiCalculatorPage() {
       }
     }
 
+    // Disclaimer (short)
+    const disclaimer =
+      "Disclaimer: The results of this calculator are provided for illustrative purposes only to help you explore potential benefits of AI automation in your organization. " +
+      "Actual outcomes will vary and are not a guarantee or commitment of financial return. Results depend on factors including but not limited to implementation practices, " +
+      "user adoption, workflow design and configurations, organizational processes, market conditions, and external economic factors. All calculations are presented in US dollars unless otherwise noted.";
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(12);
+    pdf.text("Disclaimer", 40, (y += 28));
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    wrapText(pdf, disclaimer, 40, pageW - 80, (y += 12), 16);
+
+    // Save & notify
     pdf.save("ROI Results.pdf");
 
     try {
@@ -321,46 +407,21 @@ export default function RoiCalculatorPage() {
             typeof window !== "undefined" ? window.location.href : undefined,
         }),
       });
-    } catch {}
+    } catch {
+      // non-blocking
+    }
   }
 
-  /* === Build table columns WITHOUT stray whitespace (prevents hydration mismatch) === */
-  // Optional future toggle to link people to adoption*employees; leave false to keep rows editable.
-  const [linkPeople] = useState(false);
-
-  const cols = useMemo(
-    () =>
-      linkPeople
-        ? [
-            <col key="name" className="w-[32%]" />,
-            <col key="min" className="w-[9%]" />,
-            <col key="perperson" className="w-[14%]" />,
-            <col key="part" className="w-[12%]" />,
-            <col key="eff" className="w-[12%]" />,
-            <col key="auto" className="w-[12%]" />,
-            <col key="hour" className="w-[10%]" />,
-            <col key="act" className="w-[9%]" />,
-          ]
-        : [
-            <col key="name" className="w-[32%]" />,
-            <col key="min" className="w-[9%]" />,
-            <col key="tasks" className="w-[16%]" />,
-            <col key="people" className="w-[12%]" />,
-            <col key="auto" className="w-[12%]" />,
-            <col key="hour" className="w-[10%]" />,
-            <col key="act" className="w-[9%]" />,
-          ],
-    [linkPeople]
-  );
-
   /* ----------------------------------- UI ----------------------------------- */
+
   return (
     <main ref={pageRef} className="mx-auto max-w-6xl px-4 py-8">
       {/* Top bar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">
-            AI Agent ROI Calculator <span className="text-orange-500">(Digital Labor)</span>
+            AI Agent ROI Calculator{" "}
+            <span className="text-orange-500">(Digital Labor)</span>
           </h1>
           <p className="text-sm text-slate-600 dark:text-slate-400">
             Defaults reflect a ~100-employee SMB — tweak for your org.
@@ -422,10 +483,10 @@ export default function RoiCalculatorPage() {
             active={mode === "optimal"}
             onClick={() => setMode("optimal")}
           />
-          <div className="ml-auto flex items-center gap-3">
+
+        <div className="ml-auto flex items-center gap-3">
             <label className="text-sm text-slate-700 dark:text-slate-300">
-              <span className="font-medium">Automation adoption</span>:{" "}
-              <span className="font-semibold">{adoption}%</span>
+              Automation adoption: <span className="font-semibold">{adoption}%</span>
             </label>
             <input
               type="range"
@@ -456,10 +517,8 @@ export default function RoiCalculatorPage() {
           Calculation Summary
         </summary>
         <div className="mt-3 text-sm text-slate-700 dark:text-slate-300">
-          Benefit: portion of repetitive work shifts from humans to AI agents; adoption ramps over time.
-          Hours saved = employees × minutes/task × tasks/month × automation% × adoption% × 12 months.
-          Program Cost: monthly platform + AI usage + implementation amortized.
-          Net Impact: Net benefit = annual labor savings − total annual costs; ROI% = net ÷ costs × 100.
+          Hours saved = minutes/task ÷ 60 × tasks/person/month × <b>effective employees</b> × 12 × automation%.<br />
+          Effective employees = round(employees × participation% × adoption%). Participation is set by scenario (Conservative / Typical / Optimal).
         </div>
       </details>
 
@@ -500,7 +559,19 @@ export default function RoiCalculatorPage() {
                     <li key={name}>
                       <button
                         onClick={() => {
-                          addRow(name);
+                          const key = WF_KEYS[name] ?? "other";
+                          setRows((prev) => [
+                            ...prev,
+                            {
+                              id: uid(),
+                              name,
+                              minPerTask: 5,
+                              tasksPerPerson: 20,
+                              participationPct: PARTICIPATION_PRESETS[mode][key],
+                              automationPct: 50,
+                              hourly: 45,
+                            },
+                          ]);
                           setTemplateQuery("");
                           setTemplateOpen(false);
                         }}
@@ -517,80 +588,179 @@ export default function RoiCalculatorPage() {
         </div>
 
         <div className="mt-4 overflow-x-auto">
-          {/* Force predictable widths so Name never truncates badly */}
+          {/* Fixed widths; keep participation & hourly narrow; room for Delete */}
           <table className="min-w-full table-fixed border-collapse text-sm">
-            {/* IMPORTANT: no stray whitespace inside <colgroup> */}
-            <colgroup>{cols}</colgroup>
+            <colgroup><col className="w-[28%]"/><col className="w-[9%]"/><col className="w-[14%]"/><col className="w-[10%]"/><col className="w-[14%]"/><col className="w-[9%]"/><col className="w-[8%]"/><col className="w-[8%]"/></colgroup>
             <thead>
               <tr className="text-left">
                 <Th>Name</Th>
                 <Th>Min/Task</Th>
-                <Th>{linkPeople ? "Tasks/Person/Month" : "Tasks/Month"}</Th>
-                {linkPeople && <Th>Participants</Th>}
-                {linkPeople && <Th>Efficiency %</Th>}
-                <Th>People</Th>
+                <Th>Tasks/Person</Th>
+                <Th>Participation %</Th>
+                <Th>Effective Employees</Th>
+                <Th>Automation %</Th>
                 <Th>Hourly</Th>
                 <Th>Actions</Th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr
-                  key={r.id}
-                  className="border-t border-slate-200 dark:border-slate-700"
-                >
-                  <Td className="align-top">
-                    <TextField value={r.name} onChange={(v) => updateRow(r.id, { name: v })} />
-                  </Td>
-                  <Td>
-                    <NumField value={r.minPerTask} onChange={(v) => updateRow(r.id, { minPerTask: v })} min={0} />
-                  </Td>
-                  <Td>
-                    <NumField
-                      value={r.tasksPerMonth}
-                      onChange={(v) => updateRow(r.id, { tasksPerMonth: v })}
-                      min={0}
-                    />
-                  </Td>
-                  <Td>
-                    <NumField
-                      value={r.people}
-                      onChange={(v) => updateRow(r.id, { people: v })}
-                      min={0}
-                    />
-                  </Td>
-                  <Td>
-                    <NumField
-                      value={r.automationPct}
-                      onChange={(v) => updateRow(r.id, { automationPct: clamp(v, 0, 100) })}
-                      min={0}
-                      max={100}
-                    />
-                  </Td>
-                  <Td>
-                    <NumField
-                      value={r.hourly}
-                      onChange={(v) => updateRow(r.id, { hourly: v })}
-                      min={0}
-                      prefix="$"
-                    />
-                  </Td>
-                  <Td>
-                    <button
-                      onClick={() => removeRow(r.id)}
-                      className="rounded-md px-2 py-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                    >
-                      Delete
-                    </button>
-                  </Td>
-                </tr>
-              ))}
+              {rows.map((r) => {
+                const computedEff = Math.round(
+                  employees * (r.participationPct / 100) * (adoption / 100)
+                );
+                const isOverridden =
+                  typeof r.effectiveOverride === "number" &&
+                  Number.isFinite(r.effectiveOverride);
+                const effValue = isOverridden
+                  ? Math.max(0, Math.trunc(r.effectiveOverride as number))
+                  : computedEff;
+
+                return (
+                  <tr
+                    key={r.id}
+                    className="border-t border-slate-200 dark:border-slate-700"
+                  >
+                    <Td>
+                      <TextField
+                        value={r.name}
+                        onChange={(v) =>
+                          setRows((prev) =>
+                            prev.map((x) =>
+                              x.id === r.id ? { ...x, name: v } : x
+                            )
+                          )
+                        }
+                      />
+                    </Td>
+                    <Td>
+                      <NumField
+                        value={r.minPerTask}
+                        onChange={(v) =>
+                          setRows((prev) =>
+                            prev.map((x) =>
+                              x.id === r.id ? { ...x, minPerTask: v } : x
+                            )
+                          )
+                        }
+                        min={0}
+                      />
+                    </Td>
+                    <Td>
+                      <NumField
+                        value={r.tasksPerPerson}
+                        onChange={(v) =>
+                          setRows((prev) =>
+                            prev.map((x) =>
+                              x.id === r.id ? { ...x, tasksPerPerson: v } : x
+                            )
+                          )
+                        }
+                        min={0}
+                      />
+                    </Td>
+                    <Td>
+                      {/* locked by mode; read-only */}
+                      <NumField
+                        value={r.participationPct}
+                        onChange={() => {}}
+                        min={0}
+                        max={100}
+                        readOnly
+                      />
+                    </Td>
+                    <Td>
+                      <div className="flex items-center gap-2">
+                        <NumField
+                          value={effValue}
+                          onChange={(v) =>
+                            setRows((prev) =>
+                              prev.map((x) =>
+                                x.id === r.id
+                                  ? { ...x, effectiveOverride: Math.max(0, Math.trunc(v)) }
+                                  : x
+                              )
+                            )
+                          }
+                          min={0}
+                        />
+                        {isOverridden ? (
+                          <button
+                            onClick={() =>
+                              setRows((prev) =>
+                                prev.map((x) =>
+                                  x.id === r.id
+                                    ? { ...x, effectiveOverride: undefined }
+                                    : x
+                                )
+                              )
+                            }
+                            className="rounded-md px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                            title="Use automatic calculation"
+                          >
+                            Reset
+                          </button>
+                        ) : (
+                          <span className="text-[11px] rounded bg-slate-200/60 px-1 py-0.5 dark:bg-slate-700/60">
+                            auto
+                          </span>
+                        )}
+                      </div>
+                    </Td>
+                    <Td>
+                      <NumField
+                        value={r.automationPct}
+                        onChange={(v) =>
+                          setRows((prev) =>
+                            prev.map((x) =>
+                              x.id === r.id
+                                ? { ...x, automationPct: clamp01(v) }
+                                : x
+                            )
+                          )
+                        }
+                        min={0}
+                        max={100}
+                      />
+                    </Td>
+                    <Td>
+                      <NumField
+                        value={r.hourly}
+                        onChange={(v) =>
+                          setRows((prev) =>
+                            prev.map((x) =>
+                              x.id === r.id ? { ...x, hourly: v } : x
+                            )
+                          )
+                        }
+                        min={0}
+                        prefix="$"
+                      />
+                    </Td>
+                    <Td>
+                      <button
+                        onClick={() =>
+                          setRows((prev) => prev.filter((x) => x.id !== r.id))
+                        }
+                        className="rounded-md px-2 py-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                      >
+                        Delete
+                      </button>
+                    </Td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+
+          {/* Tiny helper text showing current auto headcount sum (for sanity) */}
+          <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            Auto-mode effective employees (sum of non-overridden rows):{" "}
+            <span className="font-medium">{fmtInt(autoEffectiveSum)}</span>
+          </div>
         </div>
       </section>
 
-      {/* Footer / SEO helper text */}
+      {/* Footer / SEO helper text for crawlers */}
       <footer className="mt-10 text-xs text-slate-500 dark:text-slate-400">
         Results are estimates; see disclaimer in the PDF. For definitions, visit{" "}
         <Link href="/glossary" className="underline">
@@ -600,28 +770,6 @@ export default function RoiCalculatorPage() {
       </footer>
     </main>
   );
-
-  /* ---- actions for rows ---- */
-  function addRow(name = "") {
-    setRows((prev) => [
-      ...prev,
-      {
-        id: uid(),
-        name,
-        minPerTask: 5,
-        tasksPerMonth: 500,
-        people: 1,
-        automationPct: 50,
-        hourly: 45,
-      },
-    ]);
-  }
-  function removeRow(id: string) {
-    setRows((prev) => prev.filter((r) => r.id !== id));
-  }
-  function updateRow(id: string, patch: Partial<Workflow>) {
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-  }
 }
 
 /* ------------------------------ SMALL UI BITS ------------------------------- */
@@ -697,6 +845,7 @@ function TextField({
   );
 }
 
+/** Smarter numeric field: allows temporary blanks, commits on blur/Enter */
 function NumField({
   label,
   value,
@@ -705,6 +854,7 @@ function NumField({
   max,
   prefix,
   className = "",
+  readOnly = false,
 }: {
   label?: string;
   value: number;
@@ -713,7 +863,27 @@ function NumField({
   max?: number;
   prefix?: string;
   className?: string;
+  readOnly?: boolean;
 }) {
+  const [text, setText] = useState<string>(String(value));
+  useEffect(() => {
+    setText(String(value));
+  }, [value]);
+
+  function commit(raw: string) {
+    if (readOnly) return;
+    const cleaned = raw.replace(/[^0-9]/g, "");
+    if (cleaned === "") {
+      // If left blank, revert to last value (no jump to 1)
+      setText(String(value));
+      return;
+    }
+    let n = parseInt(cleaned, 10);
+    if (Number.isFinite(min)) n = Math.max(min!, n);
+    if (Number.isFinite(max)) n = Math.min(max!, n);
+    onChange(n);
+  }
+
   return (
     <label className={"block " + className}>
       {label ? (
@@ -721,7 +891,7 @@ function NumField({
           {label}
         </span>
       ) : null}
-      <div className="relative">
+      <div className={"relative " + (readOnly ? "opacity-60" : "")} title={readOnly ? "Set by scenario" : undefined}>
         {prefix ? (
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400">
             {prefix}
@@ -730,16 +900,14 @@ function NumField({
         <input
           inputMode="numeric"
           pattern="[0-9]*"
-          value={Number.isFinite(value) ? String(value) : ""}
-          onChange={(e) => {
-            const raw = e.target.value.replace(/[^0-9]/g, "");
-            const n = raw === "" ? 0 : parseInt(raw, 10);
-            const clamped = clamp(
-              n,
-              min ?? Number.MIN_SAFE_INTEGER,
-              max ?? Number.MAX_SAFE_INTEGER
-            );
-            onChange(clamped);
+          value={text}
+          readOnly={readOnly}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              commit((e.target as HTMLInputElement).value);
+            }
           }}
           className={
             "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-slate-600 " +
@@ -758,8 +926,8 @@ function Th({ children }: { children: React.ReactNode }) {
     </th>
   );
 }
-function Td({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <td className={"px-2 py-2 " + className}>{children}</td>;
+function Td({ children }: { children: React.ReactNode }) {
+  return <td className="px-2 py-2 align-middle">{children}</td>;
 }
 
 /* ------------------------------- PDF helper -------------------------------- */
