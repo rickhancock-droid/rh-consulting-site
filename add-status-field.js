@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 const GH_TOKEN = process.env.GH_TOKEN;
 const PROJECT_ID = process.env.PROJECT_ID;
