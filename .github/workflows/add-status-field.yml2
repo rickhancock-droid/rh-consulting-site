@@ -1,0 +1,24 @@
+name: Add Status Field to GitHub Project v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  add-status-field:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Run add-status-field.js
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          PROJECT_ID: ${{ secrets.PROJECT_ID }}
+        run: node add-status-field.js
